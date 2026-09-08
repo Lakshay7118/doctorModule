@@ -5,6 +5,7 @@ import { CheckCircle2, Search, UserPlus } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Mono, SectionHeader, Select, Table, Textarea } from "./ui";
 import { useReceptionistData } from "./data-context";
 import { departments } from "./mock-data";
+import { formatReceptionistDate, todayIso } from "./date-utils";
 
 const statusTone: Record<string, "pine" | "amber" | "slate"> = {
   Active: "pine",
@@ -69,7 +70,7 @@ export function PatientDirectory() {
       phone: form.phone,
       department: form.department,
       bloodGroup: form.bloodGroup || undefined,
-      lastVisit: "19 Aug 2026",
+      lastVisit: formatReceptionistDate(todayIso()),
       status: "New",
     });
 

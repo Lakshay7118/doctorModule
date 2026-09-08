@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Card, SectionHeader, StatCard, Badge, Mono } from "./ui";
 import { useReceptionistData } from "./data-context";
+import { formatReceptionistDate, parseReceptionistDate, todayIso } from "./date-utils";
 
 const statusTone: Record<string, "pine" | "amber" | "coral" | "slate"> = {
   Waiting: "amber",
@@ -21,17 +22,18 @@ const statusTone: Record<string, "pine" | "amber" | "coral" | "slate"> = {
 export function Dashboard() {
   const { patients, appointments, queue, admissions } = useReceptionistData();
 
-  const today = "19 Aug 2026";
-  const todaysAppointments = appointments.filter((a) => a.date === today);
+  const today = todayIso();
+  const todayLabel = formatReceptionistDate(today);
+  const todaysAppointments = appointments.filter((a) => parseReceptionistDate(a.date) === today);
   const waiting = queue.filter((q) => q.status === "Waiting").length;
   const inConsultation = queue.filter((q) => q.status === "In Consultation").length;
-  const newToday = patients.filter((p) => p.status === "New").length;
+  const newToday = patients.filter((p) => p.status === "New" && parseReceptionistDate(p.lastVisit) === today).length;
   const admittedNow = admissions.filter((a) => a.status === "Admitted").length;
 
   return (
     <div>
       <SectionHeader
-        eyebrow="Front desk · Live"
+        eyebrow={`Front desk - Live - ${todayLabel}`}
         title="Good afternoon, reception."
         description="Real-time overview of appointments, registrations, check-ins, admissions and waiting queues."
       />

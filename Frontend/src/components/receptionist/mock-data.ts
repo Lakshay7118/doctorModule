@@ -94,19 +94,29 @@ export const departments = [
 
 export const wards = ["General Ward A", "General Ward B", "ICU", "Maternity", "Pediatric Ward", "Deluxe Room 1", "Deluxe Room 2"];
 
+function currentDisplayDate(offsetDays = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
 export const initialPatients: Patient[] = [
-  { uhid: "UHID-24601", name: "Ramesh Chandra Verma", age: 54, gender: "Male", phone: "98765 43210", department: "Cardiology", lastVisit: "18 Aug 2026", status: "Active" },
-  { uhid: "UHID-24598", name: "Sunita Agarwal", age: 32, gender: "Female", phone: "98123 44556", department: "Gynecology", lastVisit: "17 Aug 2026", status: "Active" },
-  { uhid: "UHID-24587", name: "Aarav Mehta", age: 7, gender: "Male", phone: "99887 65432", department: "Pediatrics", lastVisit: "15 Aug 2026", status: "New" },
-  { uhid: "UHID-24560", name: "Firoz Khan", age: 61, gender: "Male", phone: "97654 32109", department: "Orthopedics", lastVisit: "10 Aug 2026", status: "Discharged" },
-  { uhid: "UHID-24552", name: "Lakshmi Narayanan", age: 45, gender: "Female", phone: "96543 21098", department: "General Medicine", lastVisit: "08 Aug 2026", status: "Active" },
+  { uhid: "UHID-24601", name: "Ramesh Chandra Verma", age: 54, gender: "Male", phone: "98765 43210", department: "Cardiology", lastVisit: currentDisplayDate(-1), status: "Active" },
+  { uhid: "UHID-24598", name: "Sunita Agarwal", age: 32, gender: "Female", phone: "98123 44556", department: "Gynecology", lastVisit: currentDisplayDate(-2), status: "Active" },
+  { uhid: "UHID-24587", name: "Aarav Mehta", age: 7, gender: "Male", phone: "99887 65432", department: "Pediatrics", lastVisit: currentDisplayDate(), status: "New" },
+  { uhid: "UHID-24560", name: "Firoz Khan", age: 61, gender: "Male", phone: "97654 32109", department: "Orthopedics", lastVisit: currentDisplayDate(-9), status: "Discharged" },
+  { uhid: "UHID-24552", name: "Lakshmi Narayanan", age: 45, gender: "Female", phone: "96543 21098", department: "General Medicine", lastVisit: currentDisplayDate(-11), status: "Active" },
 ];
 
 export const initialAppointments: Appointment[] = [
-  { id: "APT-1042", patient: "Ramesh Chandra Verma", uhid: "UHID-24601", doctor: "Dr. Sanjay Kapoor", department: "Cardiology", date: "19 Aug 2026", time: "11:30 AM", status: "Confirmed" },
-  { id: "APT-1041", patient: "Sunita Agarwal", uhid: "UHID-24598", doctor: "Dr. Priya Menon", department: "Gynecology", date: "19 Aug 2026", time: "12:15 PM", status: "Pending" },
-  { id: "APT-1039", patient: "Aarav Mehta", uhid: "UHID-24587", doctor: "Dr. Meera Iyer", department: "Pediatrics", date: "19 Aug 2026", time: "10:00 AM", status: "Completed" },
-  { id: "APT-1035", patient: "Firoz Khan", uhid: "UHID-24560", doctor: "Dr. Vikram Shah", department: "Orthopedics", date: "20 Aug 2026", time: "09:45 AM", status: "Confirmed" },
+  { id: "APT-1042", patient: "Ramesh Chandra Verma", uhid: "UHID-24601", doctor: "Dr. Sanjay Kapoor", department: "Cardiology", date: currentDisplayDate(), time: "11:30 AM", status: "Confirmed" },
+  { id: "APT-1041", patient: "Sunita Agarwal", uhid: "UHID-24598", doctor: "Dr. Priya Menon", department: "Gynecology", date: currentDisplayDate(), time: "12:15 PM", status: "Pending" },
+  { id: "APT-1039", patient: "Aarav Mehta", uhid: "UHID-24587", doctor: "Dr. Meera Iyer", department: "Pediatrics", date: currentDisplayDate(), time: "10:00 AM", status: "Completed" },
+  { id: "APT-1035", patient: "Firoz Khan", uhid: "UHID-24560", doctor: "Dr. Vikram Shah", department: "Orthopedics", date: currentDisplayDate(1), time: "09:45 AM", status: "Confirmed" },
 ];
 
 export const initialQueue: QueueEntry[] = [
@@ -123,9 +133,9 @@ export const initialVisitors: Visitor[] = [
 ];
 
 export const initialAdmissions: Admission[] = [
-  { id: "IPD-2231", patient: "Ramesh Chandra Verma", uhid: "UHID-24601", ward: "ICU", bed: "ICU-04", doctor: "Dr. Sanjay Kapoor", admittedOn: "18 Aug 2026", status: "Admitted" },
-  { id: "IPD-2229", patient: "Sunita Agarwal", uhid: "UHID-24598", ward: "Maternity", bed: "MAT-11", doctor: "Dr. Priya Menon", admittedOn: "17 Aug 2026", status: "Admitted" },
-  { id: "IPD-2225", patient: "Firoz Khan", uhid: "UHID-24560", ward: "General Ward B", bed: "GWB-06", doctor: "Dr. Vikram Shah", admittedOn: "10 Aug 2026", status: "Discharged" },
+  { id: "IPD-2231", patient: "Ramesh Chandra Verma", uhid: "UHID-24601", ward: "ICU", bed: "ICU-04", doctor: "Dr. Sanjay Kapoor", admittedOn: currentDisplayDate(-1), status: "Admitted" },
+  { id: "IPD-2229", patient: "Sunita Agarwal", uhid: "UHID-24598", ward: "Maternity", bed: "MAT-11", doctor: "Dr. Priya Menon", admittedOn: currentDisplayDate(-2), status: "Admitted" },
+  { id: "IPD-2225", patient: "Firoz Khan", uhid: "UHID-24560", ward: "General Ward B", bed: "GWB-06", doctor: "Dr. Vikram Shah", admittedOn: currentDisplayDate(-9), status: "Discharged" },
 ];
 
 export function generateUHID(existing: Patient[]): string {

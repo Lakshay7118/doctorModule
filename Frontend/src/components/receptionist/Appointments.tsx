@@ -5,6 +5,14 @@ import { CalendarPlus, Check, RotateCcw, X } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, Mono, SectionHeader, Select, Table } from "./ui";
 import { TimePicker } from "@/components/ui";
 import { useReceptionistData } from "./data-context";
+import {
+  formatReceptionistDate,
+  isPastReceptionistAppointment,
+  nextBookableReceptionistTime,
+  parseReceptionistDate,
+  todayIso,
+  tomorrowIso,
+} from "./date-utils";
 
 const statusTone: Record<string, "pine" | "amber" | "coral" | "slate"> = {
   Confirmed: "pine",
@@ -16,12 +24,16 @@ const statusTone: Record<string, "pine" | "amber" | "coral" | "slate"> = {
 export function Appointments() {
   const { appointments, doctors, patients, addAppointment, updateAppointmentStatus } = useReceptionistData();
   const [modalOpen, setModalOpen] = React.useState(false);
+  const today = todayIso();
+  const todayLabel = formatReceptionistDate(today);
+  const nextBookableTime = nextBookableReceptionistTime();
   const [form, setForm] = React.useState({
     uhid: patients[0]?.uhid ?? "",
     doctor: doctors[0].name,
-    date: "20 Aug 2026",
-    time: "10:00 AM",
+    date: tomorrowIso(),
+    time: nextBookableTime,
   });
+  const isPastSlot = isPastReceptionistAppointment(form.date, form.time);
 
   React.useEffect(() => {
     setForm((current) => ({
@@ -33,6 +45,8 @@ export function Appointments() {
 
   function handleBook(event: React.FormEvent) {
     event.preventDefault();
+    if (isPastReceptionistAppointment(form.date, form.time)) return;
+
     const patient = patients.find((item) => item.uhid === form.uhid);
     if (!patient) return;
 
@@ -81,7 +95,7 @@ export function Appointments() {
           </Field>
           <div className="rp-grid-2">
             <Field label="Date" required>
-              <Input value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} placeholder="e.g. 20 Aug 2026" />
+              <Input type="date" min={today} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} required />
             </Field>
             <Field label="Time" required>
               <TimePicker
@@ -92,8 +106,13 @@ export function Appointments() {
               />
             </Field>
           </div>
+          {isPastSlot && (
+            <p className="rounded-md border border-alert-100 bg-alert-50 px-3 py-2 text-xs font-medium text-alert-500">
+              Select a future time for today, or choose a later appointment date.
+            </p>
+          )}
           <div className="flex flex-wrap gap-3">
-            <Button type="submit">
+            <Button type="submit" disabled={isPastSlot}>
               <CalendarPlus size={16} /> Confirm appointment
             </Button>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
@@ -148,11 +167,11 @@ export function Appointments() {
         <Card className="xl:sticky xl:top-24">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-ink">Doctor availability today</h2>
-            <Badge tone="slate">Today</Badge>
+            <Badge tone="slate">{todayLabel}</Badge>
           </div>
           <ul className="rp-list">
             {doctors.map((doctor) => {
-              const count = appointments.filter((appointment) => appointment.doctor === doctor.name && appointment.date === "19 Aug 2026" && appointment.status !== "Cancelled").length;
+              const count = appointments.filter((appointment) => appointment.doctor === doctor.name && parseReceptionistDate(appointment.date) === today && appointment.status !== "Cancelled").length;
               return (
                 <li key={doctor.name} className="rp-list-row !py-2">
                   <div className="min-w-0 flex-1">

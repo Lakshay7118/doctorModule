@@ -5,6 +5,7 @@ import { BedDouble } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, Mono, SectionHeader, Select, Table } from "./ui";
 import { useReceptionistData } from "./data-context";
 import { doctors, wards } from "./mock-data";
+import { formatReceptionistDate, todayIso } from "./date-utils";
 
 const statusTone: Record<string, "pine" | "amber" | "slate"> = {
   Admitted: "pine",
@@ -15,11 +16,13 @@ const statusTone: Record<string, "pine" | "amber" | "slate"> = {
 export function IPDAdmission() {
   const { patients, admissions, addAdmission } = useReceptionistData();
   const [modalOpen, setModalOpen] = React.useState(false);
+  const today = todayIso();
   const [form, setForm] = React.useState({
     uhid: patients[0]?.uhid ?? "",
     ward: wards[0],
     bed: "",
     doctor: doctors[0].name,
+    admittedOn: today,
   });
 
   function handleAdmit(event: React.FormEvent) {
@@ -33,7 +36,7 @@ export function IPDAdmission() {
       ward: form.ward,
       bed: form.bed,
       doctor: form.doctor,
-      admittedOn: "19 Aug 2026",
+      admittedOn: formatReceptionistDate(form.admittedOn),
       status: "Admitted",
     });
     setForm((current) => ({ ...current, bed: "" }));
@@ -78,6 +81,9 @@ export function IPDAdmission() {
                 <option key={doctor.name} value={doctor.name}>{doctor.name} - {doctor.department}</option>
               ))}
             </Select>
+          </Field>
+          <Field label="Admission date" required>
+            <Input type="date" max={today} value={form.admittedOn} onChange={(event) => setForm((current) => ({ ...current, admittedOn: event.target.value }))} required />
           </Field>
           <div className="flex flex-wrap gap-3">
             <Button type="submit">

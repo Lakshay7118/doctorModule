@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { Download, FileBarChart2 } from "lucide-react";
-import { Button, Card, Field, Modal, SectionHeader, Select, StatCard } from "./ui";
+import { Button, Card, Field, Input, Modal, SectionHeader, Select, StatCard } from "./ui";
 import { useReceptionistData } from "./data-context";
+import { formatReceptionistDate, todayIso } from "./date-utils";
 
 const reportTypes = [
   "Patient registrations",
@@ -18,11 +19,19 @@ export function Reports() {
   const [modalOpen, setModalOpen] = React.useState(false);
   const [type, setType] = React.useState(reportTypes[0]);
   const [range, setRange] = React.useState("Today");
+  const [startDate, setStartDate] = React.useState(todayIso());
+  const [endDate, setEndDate] = React.useState(todayIso());
   const [generated, setGenerated] = React.useState<string | null>(null);
 
   function handleGenerate(event: React.FormEvent) {
     event.preventDefault();
-    setGenerated(`${type} - ${range}`);
+    const rangeLabel =
+      range === "Custom range"
+        ? `${formatReceptionistDate(startDate)} to ${formatReceptionistDate(endDate)}`
+        : range === "Today"
+          ? formatReceptionistDate(todayIso())
+          : range;
+    setGenerated(`${type} - ${rangeLabel}`);
     setModalOpen(false);
   }
 
@@ -54,6 +63,16 @@ export function Reports() {
               <option>Custom range</option>
             </Select>
           </Field>
+          {range === "Custom range" && (
+            <div className="rp-grid-2">
+              <Field label="Start date" required>
+                <Input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} required />
+              </Field>
+              <Field label="End date" required>
+                <Input type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} required />
+              </Field>
+            </div>
+          )}
           <div className="flex flex-wrap gap-3">
             <Button type="submit">
               <FileBarChart2 size={16} /> Generate report

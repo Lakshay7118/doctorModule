@@ -16,6 +16,7 @@ import { TimePicker } from "@/components/ui";
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Mono, SectionHeader, Select, Table } from "./ui";
 import { useReceptionistData } from "./data-context";
 import { departments, QueueEntry } from "./mock-data";
+import { formatReceptionistDate, isPastReceptionistAppointment, nextBookableReceptionistTime, todayIso } from "./date-utils";
 
 const statusTone: Record<QueueEntry["status"], "pine" | "amber" | "slate"> = {
   Waiting: "amber",
@@ -67,11 +68,14 @@ export function OPDManagement() {
   const [appointmentsModalOpen, setAppointmentsModalOpen] = React.useState(false);
   const [checkInModalOpen, setCheckInModalOpen] = React.useState(false);
   const [issuedToken, setIssuedToken] = React.useState("");
+  const today = todayIso();
+  const todayLabel = formatReceptionistDate(today);
+  const nextBookableTime = nextBookableReceptionistTime();
   const [appointmentForm, setAppointmentForm] = React.useState({
     uhid: patients[0]?.uhid ?? "",
     doctor: doctors[0]?.name ?? "",
-    date: "19 Aug 2026",
-    time: "10:00 AM",
+    date: today,
+    time: nextBookableTime,
   });
   const [checkInForm, setCheckInForm] = React.useState({
     uhid: patients[0]?.uhid ?? "",
@@ -125,6 +129,7 @@ export function OPDManagement() {
   const waitingCount = queue.filter((entry) => entry.status === "Waiting").length;
   const consultingCount = queue.filter((entry) => entry.status === "In Consultation").length;
   const completedCount = queue.filter((entry) => entry.status === "Completed").length;
+  const isPastAppointmentSlot = isPastReceptionistAppointment(appointmentForm.date, appointmentForm.time);
 
   function notifyAction(title: string, detail: string) {
     pushNotification({ title, detail, channel: "System" });
@@ -147,6 +152,11 @@ export function OPDManagement() {
 
   function handleBookAppointment(event: React.FormEvent) {
     event.preventDefault();
+    if (isPastReceptionistAppointment(appointmentForm.date, appointmentForm.time)) {
+      setActionMessage("Select a future appointment time before confirming.");
+      return;
+    }
+
     const patient = patients.find((item) => item.uhid === appointmentForm.uhid);
     const doctor = doctors.find((item) => item.name === appointmentForm.doctor);
     if (!patient || !doctor) return;
@@ -235,9 +245,11 @@ export function OPDManagement() {
             </Field>
             <Field label="Date" required>
               <Input
+                type="date"
+                min={today}
                 value={appointmentForm.date}
                 onChange={(event) => setAppointmentForm((current) => ({ ...current, date: event.target.value }))}
-                placeholder="e.g. 19 Aug 2026"
+                required
               />
             </Field>
             <Field label="Time" required>
@@ -249,8 +261,13 @@ export function OPDManagement() {
               />
             </Field>
           </div>
+          {isPastAppointmentSlot && (
+            <p className="mt-3 rounded-md border border-alert-100 bg-alert-50 px-3 py-2 text-xs font-medium text-alert-500">
+              Select a future time for today, or choose a later appointment date.
+            </p>
+          )}
           <div className="mt-4 flex flex-wrap gap-3">
-            <Button type="submit">
+            <Button type="submit" disabled={isPastAppointmentSlot}>
               <CalendarPlus size={16} /> Confirm Appointment
             </Button>
             <Button type="button" variant="secondary" onClick={() => setAppointmentsModalOpen(false)}>
@@ -445,7 +462,7 @@ export function OPDManagement() {
           <Card>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-ink">Doctor load</h2>
-              <Badge tone="slate">Today</Badge>
+              <Badge tone="slate">{todayLabel}</Badge>
             </div>
             {doctorLoad.length === 0 ? (
               <p className="rp-sub">No doctor queue load yet.</p>

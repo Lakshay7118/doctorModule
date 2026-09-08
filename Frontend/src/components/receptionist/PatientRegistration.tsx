@@ -5,6 +5,7 @@ import { CheckCircle2, UserPlus } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, Mono, SectionHeader, Select, Textarea } from "./ui";
 import { useReceptionistData } from "./data-context";
 import { departments } from "./mock-data";
+import { formatReceptionistDate, todayIso } from "./date-utils";
 
 export function PatientRegistration() {
   const { addPatient } = useReceptionistData();
@@ -37,7 +38,7 @@ export function PatientRegistration() {
       phone: form.phone,
       department: form.department,
       bloodGroup: form.bloodGroup || undefined,
-      lastVisit: "19 Aug 2026",
+      lastVisit: formatReceptionistDate(todayIso()),
       status: "New",
     });
 

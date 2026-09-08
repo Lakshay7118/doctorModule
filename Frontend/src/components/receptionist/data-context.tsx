@@ -34,6 +34,7 @@ import {
   generateUHID,
   generateToken,
 } from "./mock-data";
+import { formatReceptionistDate, parseReceptionistDate } from "./date-utils";
 
 export interface NotificationItem {
   id: string;
@@ -80,59 +81,8 @@ function backendGender(gender: Patient["gender"]) {
   return "OTHER" as const;
 }
 
-function displayDateToIso(value: string) {
-  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) return value;
-
-  const displayMatch = value.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/);
-  if (displayMatch) {
-    const months: Record<string, string> = {
-      jan: "01",
-      january: "01",
-      feb: "02",
-      february: "02",
-      mar: "03",
-      march: "03",
-      apr: "04",
-      april: "04",
-      may: "05",
-      jun: "06",
-      june: "06",
-      jul: "07",
-      july: "07",
-      aug: "08",
-      august: "08",
-      sep: "09",
-      september: "09",
-      oct: "10",
-      october: "10",
-      nov: "11",
-      november: "11",
-      dec: "12",
-      december: "12",
-    };
-    const day = displayMatch[1].padStart(2, "0");
-    const month = months[displayMatch[2].toLowerCase()];
-    if (month) return `${displayMatch[3]}-${month}-${day}`;
-  }
-
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-
-  return new Date().toISOString().slice(0, 10);
-}
-
 function isoToDisplayDate(value: string) {
-  const datePart = value.slice(0, 10);
-  const [year, month, day] = datePart.split("-").map(Number);
-  if (!year || !month || !day) return value;
-
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(Date.UTC(year, month - 1, day)));
+  return formatReceptionistDate(value);
 }
 
 function birthDateFromAge(age: number) {
@@ -403,6 +353,7 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     const doctor = findDoctorOption(a.doctor);
     const appt: Appointment = {
       ...a,
+      date: formatReceptionistDate(a.date),
       id: `APT-${1043 + appointments.length}`,
       patientId: patient?.backendId,
       doctorId: doctor?.backendId,
@@ -423,7 +374,7 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
         patientId,
         doctorId,
         workplaceId,
-        date: displayDateToIso(appt.date),
+        date: parseReceptionistDate(appt.date),
         time: appt.time,
         durationMins: 20,
         type: "In-Person",
