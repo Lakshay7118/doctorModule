@@ -8,8 +8,10 @@ import { operations } from "./operations";
 import { laboratory } from "./laboratory";
 import { administration } from "./administration";
 import { communication } from "./communication";
+import { receptionist } from "./receptionist";
 
 export const hospitalRoutes = protectedRouter();
+receptionist(hospitalRoutes);
 management(hospitalRoutes);
 clinical(hospitalRoutes);
 billing(hospitalRoutes);

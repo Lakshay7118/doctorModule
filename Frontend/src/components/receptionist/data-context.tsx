@@ -3,21 +3,19 @@
 import * as React from "react";
 import {
   ApiSyncSkippedError,
-  createBackendAppointment,
-  createBackendPatient,
-  getBackendBootstrap,
-  getBackendState,
   isUuid,
-  saveBackendState,
-  updateBackendAppointmentStatus,
+  createBackendReceptionistAdmission,
+  createBackendReceptionistAppointment,
+  createBackendReceptionistCheckIn,
+  createBackendReceptionistEmergencyCase,
+  createBackendReceptionistNotification,
+  createBackendReceptionistPatient,
+  createBackendReceptionistVisitor,
+  checkOutBackendReceptionistVisitor,
+  getBackendReceptionistBootstrap,
+  updateBackendReceptionistAppointmentStatus,
 } from "@/lib/api-client";
 import { Card, SectionSkeleton, Skeleton } from "@/components/ui";
-import type {
-  Appointment as DoctorAppointment,
-  AppointmentStatus as DoctorAppointmentStatus,
-  Doctor,
-  Patient as DoctorPatient,
-} from "@/lib/types";
 import {
   Patient,
   Appointment,
@@ -25,12 +23,6 @@ import {
   Visitor,
   Admission,
   ReceptionistDoctor,
-  initialPatients,
-  initialAppointments,
-  initialQueue,
-  initialVisitors,
-  initialAdmissions,
-  doctors as seededDoctors,
   generateUHID,
   generateToken,
 } from "./mock-data";
@@ -42,15 +34,44 @@ export interface NotificationItem {
   detail: string;
   time: string;
   channel: "SMS" | "Email" | "System" | "Call";
+  recipient?: string;
+}
+
+export interface EmergencyCase {
+  id: string;
+  backendId?: string;
+  patientId?: string;
+  doctorId?: string;
+  workplaceId?: string;
+  name: string;
+  age: string;
+  severity: "Critical" | "Serious" | "Stable";
+  doctor: string;
+  arrivedAt: string;
+}
+
+export interface BillingRow {
+  id: string;
+  backendId?: string;
+  patientId?: string;
+  workplaceId?: string;
+  patient: string;
+  uhid: string;
+  item: string;
+  amount: number;
+  status: "Paid" | "Pending" | "Advance received";
 }
 
 interface ReceptionistData {
   doctors: ReceptionistDoctor[];
+  wards: string[];
   patients: Patient[];
   appointments: Appointment[];
   queue: QueueEntry[];
   visitors: Visitor[];
   admissions: Admission[];
+  emergencyCases: EmergencyCase[];
+  billingRows: BillingRow[];
   notifications: NotificationItem[];
   addPatient: (p: Omit<Patient, "uhid">) => Patient;
   addAppointment: (a: Omit<Appointment, "id">) => Appointment;
@@ -60,53 +81,17 @@ interface ReceptionistData {
   addVisitor: (v: Omit<Visitor, "id" | "passIssued" | "status">) => Visitor;
   checkOutVisitor: (id: string) => void;
   addAdmission: (a: Omit<Admission, "id">) => Admission;
+  addEmergencyCase: (e: Omit<EmergencyCase, "id" | "arrivedAt">) => EmergencyCase;
+  sendStaffMessage: (message: { recipient: string; subject: string; body: string; channel: NotificationItem["channel"] }) => void;
   pushNotification: (n: Omit<NotificationItem, "id" | "time">) => void;
 }
 
 const ReceptionistDataContext = React.createContext<ReceptionistData | null>(null);
 
-const STATE_SCOPE = "receptionist-workspace";
-const STATE_ENTITY_ID = "front-desk";
-
-interface PersistedReceptionistState {
-  queue?: QueueEntry[];
-  visitors?: Visitor[];
-  admissions?: Admission[];
-  notifications?: NotificationItem[];
-}
-
-function backendGender(gender: Patient["gender"]) {
-  if (gender === "Female") return "FEMALE" as const;
-  if (gender === "Male") return "MALE" as const;
-  return "OTHER" as const;
-}
-
-function isoToDisplayDate(value: string) {
-  return formatReceptionistDate(value);
-}
-
 function birthDateFromAge(age: number) {
   if (!Number.isFinite(age) || age <= 0) return undefined;
   const today = new Date();
   return `${today.getFullYear() - Math.floor(age)}-01-01`;
-}
-
-function receptionistStatus(status: DoctorAppointment["status"]): Appointment["status"] {
-  if (status === "Completed") return "Completed";
-  if (status === "Cancelled" || status === "No Show") return "Cancelled";
-  return "Confirmed";
-}
-
-function backendAppointmentStatus(status: Appointment["status"]): DoctorAppointmentStatus {
-  if (status === "Completed") return "Completed";
-  if (status === "Cancelled") return "Cancelled";
-  return "Scheduled";
-}
-
-function queueAppointmentStatus(status: QueueEntry["status"]): DoctorAppointmentStatus {
-  if (status === "In Consultation") return "In Consultation";
-  if (status === "Completed") return "Completed";
-  return "Checked In";
 }
 
 function ignoreSyncError(error: unknown) {
@@ -163,87 +148,31 @@ function ReceptionistWorkspaceSkeleton() {
 }
 
 export function ReceptionistDataProvider({ children }: { children: React.ReactNode }) {
-  const hydratedRef = React.useRef(false);
   const [isLoading, setIsLoading] = React.useState(true);
-  const [doctors, setDoctors] = React.useState<ReceptionistDoctor[]>(seededDoctors);
-  const [backendDoctorRows, setBackendDoctorRows] = React.useState<Doctor[]>([]);
+  const [doctors, setDoctors] = React.useState<ReceptionistDoctor[]>([]);
+  const [wards, setWards] = React.useState<string[]>([]);
   const [backendWorkplaceId, setBackendWorkplaceId] = React.useState<string | undefined>();
-  const [patients, setPatients] = React.useState<Patient[]>(initialPatients);
-  const [appointments, setAppointments] = React.useState<Appointment[]>(initialAppointments);
-  const [queue, setQueue] = React.useState<QueueEntry[]>(initialQueue);
-  const [visitors, setVisitors] = React.useState<Visitor[]>(initialVisitors);
-  const [admissions, setAdmissions] = React.useState<Admission[]>(initialAdmissions);
-  const [notifications, setNotifications] = React.useState<NotificationItem[]>([
-    { id: "N-1", title: "Appointment confirmed", detail: "Sent to Ramesh Chandra Verma for 11:30 AM with Dr. Sanjay Kapoor", time: "9:02 AM", channel: "SMS" },
-    { id: "N-2", title: "Bed allotted", detail: "ICU-04 assigned for Ramesh Chandra Verma", time: "Yesterday", channel: "System" },
-  ]);
+  const [patients, setPatients] = React.useState<Patient[]>([]);
+  const [appointments, setAppointments] = React.useState<Appointment[]>([]);
+  const [queue, setQueue] = React.useState<QueueEntry[]>([]);
+  const [visitors, setVisitors] = React.useState<Visitor[]>([]);
+  const [admissions, setAdmissions] = React.useState<Admission[]>([]);
+  const [emergencyCases, setEmergencyCases] = React.useState<EmergencyCase[]>([]);
+  const [billingRows, setBillingRows] = React.useState<BillingRow[]>([]);
+  const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
 
-  function mapBackendDoctors(rows: Doctor[]): ReceptionistDoctor[] {
-    return rows.map((doctor) => ({
-      name: doctor.name,
-      department: doctor.specialty,
-      backendId: doctor.id,
-    }));
-  }
-
-  function mapBackendPatients(rows: DoctorPatient[], doctorRows: ReceptionistDoctor[], workplaceId?: string): Patient[] {
-    return rows.map((patient) => {
-      const primaryDoctor = doctorRows.find((doctor) => doctor.backendId === patient.primaryDoctorId);
-      return {
-        uhid: patient.mrn,
-        backendId: patient.id,
-        primaryDoctorId: patient.primaryDoctorId,
-        workplaceId: patient.clinicId ?? workplaceId,
-        name: patient.name,
-        age: patient.age,
-        gender: patient.gender,
-        phone: patient.phone,
-        department: primaryDoctor?.department ?? patient.conditions[0] ?? "General Medicine",
-        bloodGroup: patient.bloodGroup === "-" ? undefined : patient.bloodGroup,
-        lastVisit: patient.lastVisit === "Backend" ? "Synced" : patient.lastVisit,
-        status: patient.tags?.includes("New") ? "New" : "Active",
-      };
-    });
-  }
-
-  function mapBackendAppointments(
-    rows: DoctorAppointment[],
-    patientRows: Patient[],
-    doctorRows: ReceptionistDoctor[],
-    workplaceId?: string
-  ): Appointment[] {
-    return rows.map((appointment) => {
-      const patient = patientRows.find((item) => item.backendId === appointment.patientId);
-      const doctor = doctorRows.find((item) => item.backendId === appointment.doctorId);
-      return {
-        id: appointment.id,
-        backendId: appointment.id,
-        patientId: appointment.patientId,
-        doctorId: appointment.doctorId,
-        workplaceId: patient?.workplaceId ?? workplaceId,
-        patient: patient?.name ?? "Unknown patient",
-        uhid: patient?.uhid ?? appointment.patientId.slice(0, 8),
-        doctor: doctor?.name ?? "Assigned doctor",
-        department: doctor?.department ?? patient?.department ?? "General Medicine",
-        date: isoToDisplayDate(appointment.date),
-        time: appointment.time,
-        status: receptionistStatus(appointment.status),
-      };
-    });
-  }
-
-  async function refreshBackendCore() {
-    const data = await getBackendBootstrap({ ensureDemo: true });
-    const doctorRows = mapBackendDoctors(data.doctors);
-    const nextDoctors = doctorRows.length > 0 ? doctorRows : seededDoctors;
-    const nextPatients = mapBackendPatients(data.patients, nextDoctors, data.workplaceId);
-    const nextAppointments = mapBackendAppointments(data.appointments, nextPatients, nextDoctors, data.workplaceId);
-
-    setBackendDoctorRows(data.doctors);
+  function applyBackendSnapshot(data: Awaited<ReturnType<typeof getBackendReceptionistBootstrap>>) {
     setBackendWorkplaceId(data.workplaceId);
-    setDoctors(nextDoctors);
-    if (nextPatients.length > 0) setPatients(nextPatients);
-    setAppointments(nextAppointments);
+    setDoctors(data.doctors);
+    setWards(data.wards);
+    setPatients(data.patients);
+    setAppointments(data.appointments);
+    setQueue(data.queue);
+    setVisitors(data.visitors);
+    setAdmissions(data.admissions);
+    setEmergencyCases(data.emergencyCases);
+    setBillingRows(data.billingRows);
+    setNotifications(data.notifications);
   }
 
   React.useEffect(() => {
@@ -251,34 +180,12 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
 
     async function load() {
       try {
-        const data = await getBackendBootstrap({ ensureDemo: true });
+        const data = await getBackendReceptionistBootstrap();
         if (cancelled) return;
-
-        const doctorRows = mapBackendDoctors(data.doctors);
-        const nextDoctors = doctorRows.length > 0 ? doctorRows : seededDoctors;
-        const nextPatients = mapBackendPatients(data.patients, nextDoctors, data.workplaceId);
-        const nextAppointments = mapBackendAppointments(data.appointments, nextPatients, nextDoctors, data.workplaceId);
-
-        setBackendDoctorRows(data.doctors);
-        setBackendWorkplaceId(data.workplaceId);
-        setDoctors(nextDoctors);
-        if (nextPatients.length > 0) setPatients(nextPatients);
-        setAppointments(nextAppointments);
-      } catch (error) {
-        ignoreSyncError(error);
-      }
-
-      try {
-        const state = await getBackendState<PersistedReceptionistState>(STATE_SCOPE, STATE_ENTITY_ID);
-        if (cancelled || !state) return;
-        if (Array.isArray(state.queue)) setQueue(state.queue);
-        if (Array.isArray(state.visitors)) setVisitors(state.visitors);
-        if (Array.isArray(state.admissions)) setAdmissions(state.admissions);
-        if (Array.isArray(state.notifications)) setNotifications(state.notifications);
+        applyBackendSnapshot(data);
       } catch (error) {
         ignoreSyncError(error);
       } finally {
-        hydratedRef.current = true;
         if (!cancelled) setIsLoading(false);
       }
     }
@@ -290,26 +197,11 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     };
   }, []);
 
-  React.useEffect(() => {
-    if (!hydratedRef.current) return;
-
-    const timeout = window.setTimeout(() => {
-      void saveBackendState(STATE_SCOPE, STATE_ENTITY_ID, {
-        queue,
-        visitors,
-        admissions,
-        notifications,
-      } satisfies PersistedReceptionistState).catch(ignoreSyncError);
-    }, 250);
-
-    return () => window.clearTimeout(timeout);
-  }, [admissions, notifications, queue, visitors]);
-
   const nowTime = () =>
     new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
   function findBackendDoctorForDepartment(department: string) {
-    return backendDoctorRows.find((doctor) => doctor.specialty === department) ?? backendDoctorRows[0];
+    return doctors.find((doctor) => doctor.department === department) ?? doctors[0];
   }
 
   function findDoctorOption(name: string) {
@@ -321,7 +213,7 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     const patient: Patient = {
       ...p,
       uhid: generateUHID(patients),
-      primaryDoctorId: doctor?.id,
+      primaryDoctorId: doctor?.backendId,
       workplaceId: backendWorkplaceId,
     };
     setPatients((prev) => [patient, ...prev]);
@@ -331,18 +223,19 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
       channel: "System",
     });
 
-    void createBackendPatient({
+    void createBackendReceptionistPatient({
       qlynoId: patient.uhid,
       fullName: patient.name,
-      gender: backendGender(patient.gender),
+      gender: patient.gender,
       dateOfBirth: birthDateFromAge(patient.age),
       phone: patient.phone,
       bloodGroup: patient.bloodGroup,
-      primaryDoctorId: doctor?.id,
+      primaryDoctorId: doctor?.backendId,
       workplaceId: backendWorkplaceId,
       localMrn: patient.uhid,
+      department: patient.department,
     })
-      .then(() => refreshBackendCore())
+      .then(applyBackendSnapshot)
       .catch(ignoreSyncError);
 
     return patient;
@@ -370,7 +263,7 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     const doctorId = doctor?.backendId;
     const workplaceId = appt.workplaceId;
     if (isUuid(patientId) && isUuid(doctorId) && isUuid(workplaceId)) {
-      void createBackendAppointment({
+      void createBackendReceptionistAppointment({
         patientId,
         doctorId,
         workplaceId,
@@ -380,7 +273,7 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
         type: "In-Person",
         reason: "Front desk booking",
       })
-        .then(() => refreshBackendCore())
+        .then(applyBackendSnapshot)
         .catch(ignoreSyncError);
     }
 
@@ -392,7 +285,9 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
     const appointmentId = appointment?.backendId;
     if (isUuid(appointmentId)) {
-      void updateBackendAppointmentStatus(appointmentId, backendAppointmentStatus(status)).catch(ignoreSyncError);
+      void updateBackendReceptionistAppointmentStatus(appointmentId, status, appointment?.workplaceId ?? backendWorkplaceId)
+        .then(applyBackendSnapshot)
+        .catch(ignoreSyncError);
     }
   };
 
@@ -420,9 +315,13 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
       detail: `${entry.patient} issued token ${entry.token} for ${entry.doctor}`,
       channel: "System",
     });
-    const appointmentId = matchingAppointment?.backendId;
-    if (isUuid(appointmentId)) {
-      void updateBackendAppointmentStatus(appointmentId, "Checked In").catch(ignoreSyncError);
+    const patientId = patient?.backendId;
+    const doctorId = doctor?.backendId;
+    const workplaceId = patient?.workplaceId ?? backendWorkplaceId;
+    if (isUuid(patientId) && isUuid(doctorId)) {
+      void createBackendReceptionistCheckIn({ patientId, doctorId, workplaceId })
+        .then(applyBackendSnapshot)
+        .catch(ignoreSyncError);
     }
     return entry;
   };
@@ -432,7 +331,9 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     setQueue((prev) => prev.map((q) => (q.token === token ? { ...q, status } : q)));
     const appointmentId = entry?.appointmentId;
     if (isUuid(appointmentId)) {
-      void updateBackendAppointmentStatus(appointmentId, queueAppointmentStatus(status)).catch(ignoreSyncError);
+      void updateBackendReceptionistAppointmentStatus(appointmentId, status, entry?.workplaceId ?? backendWorkplaceId)
+        .then(applyBackendSnapshot)
+        .catch(ignoreSyncError);
     }
   };
 
@@ -444,11 +345,29 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
       status: "Checked In",
     };
     setVisitors((prev) => [visitor, ...prev]);
+    const admission = admissions.find((item) => item.patient === v.visiting && item.ward === v.ward);
+    const patient = patients.find((item) => item.name === v.visiting);
+    const patientId = admission?.patientId ?? patient?.backendId;
+    const workplaceId = admission?.workplaceId ?? patient?.workplaceId ?? backendWorkplaceId;
+    if (isUuid(patientId)) {
+      void createBackendReceptionistVisitor({
+        patientId,
+        workplaceId,
+        name: v.name,
+        relation: v.relation,
+        ward: v.ward,
+      })
+        .then(applyBackendSnapshot)
+        .catch(ignoreSyncError);
+    }
     return visitor;
   };
 
   const checkOutVisitor: ReceptionistData["checkOutVisitor"] = (id) => {
     setVisitors((prev) => prev.map((v) => (v.id === id ? { ...v, status: "Checked Out" } : v)));
+    void checkOutBackendReceptionistVisitor(id, backendWorkplaceId)
+      .then(applyBackendSnapshot)
+      .catch(ignoreSyncError);
   };
 
   const addAdmission: ReceptionistData["addAdmission"] = (a) => {
@@ -459,7 +378,52 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
       detail: `${admission.patient} admitted to ${admission.ward} (${admission.bed})`,
       channel: "System",
     });
+    const patient = patients.find((item) => item.uhid === a.uhid);
+    const doctor = findDoctorOption(a.doctor);
+    const patientId = patient?.backendId;
+    const doctorId = doctor?.backendId;
+    const workplaceId = patient?.workplaceId ?? backendWorkplaceId;
+    if (isUuid(patientId) && isUuid(doctorId)) {
+      void createBackendReceptionistAdmission({
+        patientId,
+        doctorId,
+        workplaceId,
+        ward: a.ward,
+        bed: a.bed,
+        admittedAt: parseReceptionistDate(a.admittedOn),
+      })
+        .then(applyBackendSnapshot)
+        .catch(ignoreSyncError);
+    }
     return admission;
+  };
+
+  const addEmergencyCase: ReceptionistData["addEmergencyCase"] = (e) => {
+    const emergencyCase: EmergencyCase = {
+      ...e,
+      id: `ER-${901 + emergencyCases.length}`,
+      arrivedAt: nowTime(),
+    };
+    setEmergencyCases((prev) => [emergencyCase, ...prev]);
+    pushNotification({
+      title: "Emergency registration",
+      detail: `${emergencyCase.name} registered as ${emergencyCase.severity} - routed to ${emergencyCase.doctor}`,
+      channel: "System",
+    });
+    const doctor = findDoctorOption(e.doctor);
+    if (isUuid(doctor?.backendId)) {
+      void createBackendReceptionistEmergencyCase({
+        name: e.name,
+        age: e.age === "Unknown" ? undefined : e.age,
+        severity: e.severity,
+        doctorId: doctor.backendId,
+        workplaceId: backendWorkplaceId,
+        complaint: e.name,
+      })
+        .then(applyBackendSnapshot)
+        .catch(ignoreSyncError);
+    }
+    return emergencyCase;
   };
 
   const pushNotification: ReceptionistData["pushNotification"] = (n) => {
@@ -469,13 +433,31 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     ]);
   };
 
+  const sendStaffMessage: ReceptionistData["sendStaffMessage"] = (message) => {
+    pushNotification({
+      title: message.subject,
+      detail: message.body,
+      channel: message.channel,
+      recipient: message.recipient,
+    });
+    void createBackendReceptionistNotification({
+      ...message,
+      workplaceId: backendWorkplaceId,
+    })
+      .then(applyBackendSnapshot)
+      .catch(ignoreSyncError);
+  };
+
   const value: ReceptionistData = {
     doctors,
+    wards,
     patients,
     appointments,
     queue,
     visitors,
     admissions,
+    emergencyCases,
+    billingRows,
     notifications,
     addPatient,
     addAppointment,
@@ -485,6 +467,8 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     addVisitor,
     checkOutVisitor,
     addAdmission,
+    addEmergencyCase,
+    sendStaffMessage,
     pushNotification,
   };
 

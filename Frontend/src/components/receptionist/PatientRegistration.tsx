@@ -4,12 +4,15 @@ import * as React from "react";
 import { CheckCircle2, UserPlus } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, Mono, SectionHeader, Select, Textarea } from "./ui";
 import { useReceptionistData } from "./data-context";
-import { departments } from "./mock-data";
 import { formatReceptionistDate, todayIso } from "./date-utils";
 
 export function PatientRegistration() {
-  const { addPatient } = useReceptionistData();
+  const { addPatient, doctors, patients } = useReceptionistData();
   const [modalOpen, setModalOpen] = React.useState(false);
+  const departmentOptions = React.useMemo(() => {
+    const names = Array.from(new Set([...doctors.map((doctor) => doctor.department), ...patients.map((patient) => patient.department)].filter(Boolean)));
+    return names.length > 0 ? names : ["General Medicine"];
+  }, [doctors, patients]);
   const [form, setForm] = React.useState({
     name: "",
     age: "",
@@ -17,11 +20,15 @@ export function PatientRegistration() {
     phone: "",
     email: "",
     address: "",
-    department: departments[0],
+    department: departmentOptions[0],
     bloodGroup: "",
     notes: "",
   });
   const [lastRegistered, setLastRegistered] = React.useState<null | { uhid: string; name: string }>(null);
+
+  React.useEffect(() => {
+    setForm((current) => (departmentOptions.includes(current.department) ? current : { ...current, department: departmentOptions[0] }));
+  }, [departmentOptions]);
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -50,7 +57,7 @@ export function PatientRegistration() {
       phone: "",
       email: "",
       address: "",
-      department: departments[0],
+      department: departmentOptions[0],
       bloodGroup: "",
       notes: "",
     });
@@ -74,7 +81,7 @@ export function PatientRegistration() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="rp-grid-2">
             <Field label="Full name" required>
-              <Input value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. Ramesh Chandra Verma" required />
+              <Input value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="Full patient name" required />
             </Field>
             <Field label="Phone number" required>
               <Input value={form.phone} onChange={(event) => update("phone", event.target.value)} placeholder="98765 43210" required />
@@ -112,7 +119,7 @@ export function PatientRegistration() {
 
           <Field label="Department to visit" required>
             <Select value={form.department} onChange={(event) => update("department", event.target.value)}>
-              {departments.map((department) => (
+              {departmentOptions.map((department) => (
                 <option key={department}>{department}</option>
               ))}
             </Select>

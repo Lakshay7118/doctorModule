@@ -4,17 +4,28 @@ import * as React from "react";
 import { BadgeCheck, LogOut } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, Mono, SectionHeader, Select, Table } from "./ui";
 import { useReceptionistData } from "./data-context";
-import { wards } from "./mock-data";
 
 export function VisitorManagement() {
-  const { visitors, addVisitor, checkOutVisitor, admissions } = useReceptionistData();
+  const { visitors, addVisitor, checkOutVisitor, admissions, wards } = useReceptionistData();
   const [modalOpen, setModalOpen] = React.useState(false);
+  const wardOptions = React.useMemo(() => {
+    const names = Array.from(new Set([...wards, ...admissions.map((admission) => admission.ward)].filter(Boolean)));
+    return names.length > 0 ? names : ["General Ward"];
+  }, [admissions, wards]);
   const [form, setForm] = React.useState({
     name: "",
     visiting: admissions[0]?.patient ?? "",
-    ward: wards[0],
+    ward: admissions[0]?.ward ?? wardOptions[0],
     relation: "",
   });
+
+  React.useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      visiting: current.visiting || admissions[0]?.patient || "",
+      ward: current.ward || admissions[0]?.ward || wardOptions[0] || "",
+    }));
+  }, [admissions, wardOptions]);
 
   function handleRegister(event: React.FormEvent) {
     event.preventDefault();
@@ -57,7 +68,7 @@ export function VisitorManagement() {
           <div className="rp-grid-2">
             <Field label="Ward" required>
               <Select value={form.ward} onChange={(event) => setForm((current) => ({ ...current, ward: event.target.value }))}>
-                {wards.map((ward) => <option key={ward}>{ward}</option>)}
+                {wardOptions.map((ward) => <option key={ward}>{ward}</option>)}
               </Select>
             </Field>
             <Field label="Relation" required>

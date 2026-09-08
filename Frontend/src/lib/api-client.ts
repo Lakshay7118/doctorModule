@@ -1327,6 +1327,350 @@ export async function getBackendState<T>(scope: string, entityId: string): Promi
   return payload.data?.value ?? null;
 }
 
+export type ReceptionistGender = "Male" | "Female" | "Other";
+export type ReceptionistPatientStatus = "Active" | "Discharged" | "New";
+export type ReceptionistAppointmentStatus = "Confirmed" | "Pending" | "Cancelled" | "Completed";
+export type ReceptionistQueueStatus = "Waiting" | "In Consultation" | "Completed";
+export type ReceptionistVisitorStatus = "Checked In" | "Checked Out";
+export type ReceptionistAdmissionStatus = "Admitted" | "Awaiting Bed" | "Discharged";
+export type ReceptionistNotificationChannel = "SMS" | "Email" | "System" | "Call";
+
+export interface BackendReceptionistDoctor {
+  name: string;
+  department: string;
+  backendId?: string;
+}
+
+export interface BackendReceptionistPatient {
+  uhid: string;
+  backendId?: string;
+  primaryDoctorId?: string;
+  workplaceId?: string;
+  name: string;
+  age: number;
+  gender: ReceptionistGender;
+  phone: string;
+  department: string;
+  bloodGroup?: string;
+  lastVisit: string;
+  status: ReceptionistPatientStatus;
+}
+
+export interface BackendReceptionistAppointment {
+  id: string;
+  backendId?: string;
+  patientId?: string;
+  doctorId?: string;
+  workplaceId?: string;
+  patient: string;
+  uhid: string;
+  doctor: string;
+  department: string;
+  date: string;
+  time: string;
+  status: ReceptionistAppointmentStatus;
+}
+
+export interface BackendReceptionistQueueEntry {
+  token: string;
+  appointmentId?: string;
+  patientId?: string;
+  doctorId?: string;
+  workplaceId?: string;
+  patient: string;
+  doctor: string;
+  department: string;
+  checkedInAt: string;
+  status: ReceptionistQueueStatus;
+}
+
+export interface BackendReceptionistVisitor {
+  id: string;
+  patientId?: string;
+  name: string;
+  visiting: string;
+  ward: string;
+  relation: string;
+  passIssued: string;
+  status: ReceptionistVisitorStatus;
+}
+
+export interface BackendReceptionistAdmission {
+  id: string;
+  backendId?: string;
+  patientId?: string;
+  doctorId?: string;
+  workplaceId?: string;
+  patient: string;
+  uhid: string;
+  ward: string;
+  bed: string;
+  doctor: string;
+  admittedOn: string;
+  status: ReceptionistAdmissionStatus;
+}
+
+export interface BackendReceptionistEmergencyCase {
+  id: string;
+  backendId?: string;
+  patientId?: string;
+  doctorId?: string;
+  workplaceId?: string;
+  name: string;
+  age: string;
+  severity: "Critical" | "Serious" | "Stable";
+  doctor: string;
+  arrivedAt: string;
+}
+
+export interface BackendReceptionistBillingRow {
+  id: string;
+  backendId?: string;
+  patientId?: string;
+  workplaceId?: string;
+  patient: string;
+  uhid: string;
+  item: string;
+  amount: number;
+  status: "Paid" | "Pending" | "Advance received";
+}
+
+export interface BackendReceptionistNotification {
+  id: string;
+  title: string;
+  detail: string;
+  time: string;
+  channel: ReceptionistNotificationChannel;
+  recipient?: string;
+}
+
+export interface BackendReceptionistPayload {
+  workplaceId?: string;
+  doctors: BackendReceptionistDoctor[];
+  wards: string[];
+  patients: BackendReceptionistPatient[];
+  appointments: BackendReceptionistAppointment[];
+  queue: BackendReceptionistQueueEntry[];
+  visitors: BackendReceptionistVisitor[];
+  admissions: BackendReceptionistAdmission[];
+  emergencyCases: BackendReceptionistEmergencyCase[];
+  billingRows: BackendReceptionistBillingRow[];
+  notifications: BackendReceptionistNotification[];
+}
+
+function receptionistBackendGender(gender: ReceptionistGender) {
+  if (gender === "Female") return "FEMALE";
+  if (gender === "Male") return "MALE";
+  return "OTHER";
+}
+
+function receptionistBackendAppointmentStatus(status: ReceptionistAppointmentStatus | ReceptionistQueueStatus) {
+  const map: Record<string, string> = {
+    Confirmed: "CONFIRMED",
+    Pending: "SCHEDULED",
+    Cancelled: "CANCELLED",
+    Completed: "COMPLETED",
+    Waiting: "WAITING",
+    "In Consultation": "IN_CONSULTATION",
+  };
+  return map[status] ?? "CONFIRMED";
+}
+
+function receptionistBackendNotificationChannel(channel: ReceptionistNotificationChannel) {
+  if (channel === "Email") return "EMAIL";
+  return channel.toUpperCase();
+}
+
+export async function getBackendReceptionistBootstrap(workplaceId?: string) {
+  const query = isUuid(workplaceId) ? `?workplaceId=${workplaceId}` : "";
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>(`/api/hms/receptionist/bootstrap${query}`);
+  return payload.data;
+}
+
+export async function createBackendReceptionistPatient(input: {
+  qlynoId: string;
+  fullName: string;
+  gender: ReceptionistGender;
+  dateOfBirth?: string;
+  phone?: string;
+  email?: string;
+  bloodGroup?: string;
+  primaryDoctorId?: string;
+  workplaceId?: string;
+  localMrn: string;
+  department?: string;
+}) {
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/patients", {
+    method: "POST",
+    body: JSON.stringify({
+      ...input,
+      gender: receptionistBackendGender(input.gender),
+      primaryDoctorId: isUuid(input.primaryDoctorId) ? input.primaryDoctorId : undefined,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+    }),
+  });
+  return payload.data;
+}
+
+export async function createBackendReceptionistAppointment(input: {
+  patientId: string;
+  doctorId: string;
+  workplaceId?: string;
+  date: string;
+  time: string;
+  durationMins: number;
+  type: AppointmentType;
+  reason?: string;
+}) {
+  requireUuid(input.patientId, "Patient id");
+  requireUuid(input.doctorId, "Doctor id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/appointments", {
+    method: "POST",
+    body: JSON.stringify({
+      patientId: input.patientId,
+      doctorId: input.doctorId,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+      scheduledAt: toIsoDateTime(input.date, input.time),
+      durationMinutes: input.durationMins,
+      mode: appointmentMode(input.type),
+      reason: input.reason,
+    }),
+  });
+  return payload.data;
+}
+
+export async function updateBackendReceptionistAppointmentStatus(
+  id: string,
+  status: ReceptionistAppointmentStatus | ReceptionistQueueStatus,
+  workplaceId?: string
+) {
+  requireUuid(id, "Appointment id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>(`/api/hms/receptionist/appointments/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: receptionistBackendAppointmentStatus(status),
+      workplaceId: isUuid(workplaceId) ? workplaceId : undefined,
+    }),
+  });
+  return payload.data;
+}
+
+export async function createBackendReceptionistCheckIn(input: {
+  patientId: string;
+  doctorId: string;
+  workplaceId?: string;
+}) {
+  requireUuid(input.patientId, "Patient id");
+  requireUuid(input.doctorId, "Doctor id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/check-ins", {
+    method: "POST",
+    body: JSON.stringify({
+      patientId: input.patientId,
+      doctorId: input.doctorId,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+    }),
+  });
+  return payload.data;
+}
+
+export async function createBackendReceptionistVisitor(input: {
+  patientId: string;
+  workplaceId?: string;
+  name: string;
+  relation: string;
+  ward: string;
+  phone?: string;
+}) {
+  requireUuid(input.patientId, "Patient id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/visitors", {
+    method: "POST",
+    body: JSON.stringify({
+      patientId: input.patientId,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+      name: input.name,
+      phone: input.phone ?? "Not recorded",
+      purpose: `${input.relation} - ${input.ward}`,
+    }),
+  });
+  return payload.data;
+}
+
+export async function checkOutBackendReceptionistVisitor(id: string, workplaceId?: string) {
+  requireUuid(id, "Visitor id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>(`/api/hms/receptionist/visitors/${id}/check-out`, {
+    method: "POST",
+    body: JSON.stringify({ workplaceId: isUuid(workplaceId) ? workplaceId : undefined }),
+  });
+  return payload.data;
+}
+
+export async function createBackendReceptionistAdmission(input: {
+  patientId: string;
+  doctorId: string;
+  workplaceId?: string;
+  ward: string;
+  bed: string;
+  admittedAt: string;
+}) {
+  requireUuid(input.patientId, "Patient id");
+  requireUuid(input.doctorId, "Doctor id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/admissions", {
+    method: "POST",
+    body: JSON.stringify({
+      patientId: input.patientId,
+      doctorId: input.doctorId,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+      ward: input.ward,
+      bed: input.bed,
+      admittedAt: `${input.admittedAt}T00:00:00.000Z`,
+    }),
+  });
+  return payload.data;
+}
+
+export async function createBackendReceptionistEmergencyCase(input: {
+  name: string;
+  age?: string;
+  severity: "Critical" | "Serious" | "Stable";
+  doctorId: string;
+  workplaceId?: string;
+  complaint?: string;
+}) {
+  requireUuid(input.doctorId, "Doctor id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/emergency-cases", {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name,
+      age: input.age ? Number(input.age) : undefined,
+      severity: input.severity,
+      doctorId: input.doctorId,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+      complaint: input.complaint,
+    }),
+  });
+  return payload.data;
+}
+
+export async function createBackendReceptionistNotification(input: {
+  channel: ReceptionistNotificationChannel;
+  recipient: string;
+  subject: string;
+  body: string;
+  workplaceId?: string;
+}) {
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/notifications", {
+    method: "POST",
+    body: JSON.stringify({
+      channel: receptionistBackendNotificationChannel(input.channel),
+      recipient: input.recipient,
+      subject: input.subject,
+      body: input.body,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+    }),
+  });
+  return payload.data;
+}
+
 export async function createBackendVitals(input: {
   patientId: string;
   bp: string;

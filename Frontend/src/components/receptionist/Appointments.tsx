@@ -29,7 +29,7 @@ export function Appointments() {
   const nextBookableTime = nextBookableReceptionistTime();
   const [form, setForm] = React.useState({
     uhid: patients[0]?.uhid ?? "",
-    doctor: doctors[0].name,
+    doctor: doctors[0]?.name ?? "",
     date: tomorrowIso(),
     time: nextBookableTime,
   });

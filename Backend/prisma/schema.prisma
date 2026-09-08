@@ -1096,8 +1096,7 @@ model PurchaseOrder {
   total     Decimal             @db.Decimal(14, 2)
   createdAt DateTime            @default(now())
   tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  items     PurchaseOr
-  derItem[]
+  items     PurchaseOrderItem[]
 
   @@index([tenantId, status])
 }

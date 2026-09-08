@@ -16,7 +16,7 @@ export function CheckIn() {
   const [modalOpen, setModalOpen] = React.useState(false);
   const [form, setForm] = React.useState({
     uhid: patients[0]?.uhid ?? "",
-    doctor: doctors[0].name,
+    doctor: doctors[0]?.name ?? "",
   });
   const [issued, setIssued] = React.useState<string | null>(null);
 

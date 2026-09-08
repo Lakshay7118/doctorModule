@@ -4,7 +4,6 @@ import * as React from "react";
 import { BedDouble } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, Mono, SectionHeader, Select, Table } from "./ui";
 import { useReceptionistData } from "./data-context";
-import { doctors, wards } from "./mock-data";
 import { formatReceptionistDate, todayIso } from "./date-utils";
 
 const statusTone: Record<string, "pine" | "amber" | "slate"> = {
@@ -14,16 +13,26 @@ const statusTone: Record<string, "pine" | "amber" | "slate"> = {
 };
 
 export function IPDAdmission() {
-  const { patients, admissions, addAdmission } = useReceptionistData();
+  const { patients, doctors, wards, admissions, addAdmission } = useReceptionistData();
   const [modalOpen, setModalOpen] = React.useState(false);
   const today = todayIso();
+  const wardOptions = React.useMemo(() => (wards.length > 0 ? wards : ["General Ward"]), [wards]);
   const [form, setForm] = React.useState({
     uhid: patients[0]?.uhid ?? "",
-    ward: wards[0],
+    ward: wardOptions[0],
     bed: "",
-    doctor: doctors[0].name,
+    doctor: doctors[0]?.name ?? "",
     admittedOn: today,
   });
+
+  React.useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      uhid: current.uhid || patients[0]?.uhid || "",
+      ward: current.ward || wardOptions[0] || "",
+      doctor: current.doctor || doctors[0]?.name || "",
+    }));
+  }, [doctors, patients, wardOptions]);
 
   function handleAdmit(event: React.FormEvent) {
     event.preventDefault();
@@ -68,7 +77,7 @@ export function IPDAdmission() {
           <div className="rp-grid-2">
             <Field label="Ward" required>
               <Select value={form.ward} onChange={(event) => setForm((current) => ({ ...current, ward: event.target.value }))}>
-                {wards.map((ward) => <option key={ward}>{ward}</option>)}
+                {wardOptions.map((ward) => <option key={ward}>{ward}</option>)}
               </Select>
             </Field>
             <Field label="Bed number" required>
@@ -127,7 +136,7 @@ export function IPDAdmission() {
               <Badge tone="slate">Live</Badge>
             </div>
             <ul className="rp-list">
-              {wards.map((ward) => {
+              {wardOptions.map((ward) => {
                 const count = admissions.filter((admission) => admission.ward === ward && admission.status === "Admitted").length;
                 return (
                   <li key={ward} className="rp-list-row !py-2">

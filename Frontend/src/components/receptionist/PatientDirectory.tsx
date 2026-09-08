@@ -4,7 +4,6 @@ import * as React from "react";
 import { CheckCircle2, Search, UserPlus } from "lucide-react";
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Mono, SectionHeader, Select, Table, Textarea } from "./ui";
 import { useReceptionistData } from "./data-context";
-import { departments } from "./mock-data";
 import { formatReceptionistDate, todayIso } from "./date-utils";
 
 const statusTone: Record<string, "pine" | "amber" | "slate"> = {
@@ -14,11 +13,15 @@ const statusTone: Record<string, "pine" | "amber" | "slate"> = {
 };
 
 export function PatientDirectory() {
-  const { addPatient, patients } = useReceptionistData();
+  const { addPatient, doctors, patients } = useReceptionistData();
   const [query, setQuery] = React.useState("");
   const [dept, setDept] = React.useState("All");
   const [modalOpen, setModalOpen] = React.useState(false);
   const [lastRegistered, setLastRegistered] = React.useState<null | { uhid: string; name: string }>(null);
+  const departmentOptions = React.useMemo(() => {
+    const names = Array.from(new Set([...doctors.map((doctor) => doctor.department), ...patients.map((patient) => patient.department)].filter(Boolean)));
+    return names.length > 0 ? names : ["General Medicine"];
+  }, [doctors, patients]);
   const [form, setForm] = React.useState({
     name: "",
     age: "",
@@ -26,10 +29,14 @@ export function PatientDirectory() {
     phone: "",
     email: "",
     address: "",
-    department: departments[0],
+    department: departmentOptions[0],
     bloodGroup: "",
     notes: "",
   });
+
+  React.useEffect(() => {
+    setForm((current) => (departmentOptions.includes(current.department) ? current : { ...current, department: departmentOptions[0] }));
+  }, [departmentOptions]);
 
   const filtered = patients.filter((p) => {
     const matchesQuery =
@@ -53,7 +60,7 @@ export function PatientDirectory() {
       phone: "",
       email: "",
       address: "",
-      department: departments[0],
+      department: departmentOptions[0],
       bloodGroup: "",
       notes: "",
     });
@@ -98,7 +105,7 @@ export function PatientDirectory() {
         <form onSubmit={handleRegister} className="space-y-4">
           <div className="rp-grid-2">
             <Field label="Full name" required>
-              <Input value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. Ramesh Chandra Verma" required />
+              <Input value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="Full patient name" required />
             </Field>
             <Field label="Phone number" required>
               <Input value={form.phone} onChange={(event) => update("phone", event.target.value)} placeholder="98765 43210" required />
@@ -136,7 +143,7 @@ export function PatientDirectory() {
 
           <Field label="Department to visit" required>
             <Select value={form.department} onChange={(event) => update("department", event.target.value)}>
-              {departments.map((department) => (
+              {departmentOptions.map((department) => (
                 <option key={department}>{department}</option>
               ))}
             </Select>
@@ -186,7 +193,7 @@ export function PatientDirectory() {
           </div>
           <Select value={dept} onChange={(event) => setDept(event.target.value)} className="sm:w-56">
             <option>All</option>
-            {departments.map((department) => (
+            {departmentOptions.map((department) => (
               <option key={department}>{department}</option>
             ))}
           </Select>

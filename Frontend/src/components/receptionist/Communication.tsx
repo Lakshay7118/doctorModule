@@ -25,13 +25,9 @@ const channelIcon: Record<Channel, React.ReactNode> = {
   Call: <Phone size={14} />,
 };
 
-function nowTime() {
-  return new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-}
-
 export function Communication() {
-  const { pushNotification } = useReceptionistData();
-  const contacts = React.useMemo(() => getAllHospitalInternalContacts(), []);
+  const { doctors, notifications, sendStaffMessage } = useReceptionistData();
+  const contacts = React.useMemo(() => getAllHospitalInternalContacts(doctors), [doctors]);
   const [selectedContactId, setSelectedContactId] = React.useState(contacts[0]?.id ?? "");
   const [modalOpen, setModalOpen] = React.useState(false);
   const [form, setForm] = React.useState({
@@ -39,26 +35,19 @@ export function Communication() {
     channel: "System" as Channel,
     message: "",
   });
-  const [messageLog, setMessageLog] = React.useState<InternalMessageLog[]>([
-    {
-      id: "IM-1",
-      contact: "Nursing Station",
-      team: "Nursing Station",
-      role: "Charge Nurse",
-      channel: "System",
-      detail: "Queue and vitals handoff shared with the ward team.",
-      time: "9:10 AM",
-    },
-    {
-      id: "IM-2",
-      contact: "Billing Coordination Desk",
-      team: "Billing",
-      role: "Billing Staff",
-      channel: "Call",
-      detail: "Discharge billing query routed to billing coordination.",
-      time: "Yesterday",
-    },
-  ]);
+  const messageLog = React.useMemo<InternalMessageLog[]>(
+    () =>
+      notifications.map((notification) => ({
+        id: notification.id,
+        contact: notification.recipient ?? notification.title,
+        team: "Hospital outbox",
+        role: notification.channel,
+        channel: notification.channel,
+        detail: notification.detail,
+        time: notification.time,
+      })),
+    [notifications]
+  );
 
   const selectedContact = contacts.find((contact) => contact.id === selectedContactId) ?? contacts[0];
 
@@ -67,21 +56,10 @@ export function Communication() {
     const contact = contacts.find((item) => item.id === form.contactId);
     if (!contact || !form.message.trim()) return;
 
-    setMessageLog((current) => [
-      {
-        id: `IM-${current.length + 1}`,
-        contact: contact.name,
-        team: contact.team,
-        role: contact.role,
-        channel: form.channel,
-        detail: form.message.trim(),
-        time: nowTime(),
-      },
-      ...current,
-    ]);
-    pushNotification({
-      title: `${form.channel} sent to ${contact.name}`,
-      detail: form.message.trim(),
+    sendStaffMessage({
+      recipient: contact.name,
+      subject: `${form.channel} sent to ${contact.name}`,
+      body: form.message.trim(),
       channel: form.channel,
     });
     setSelectedContactId(contact.id);

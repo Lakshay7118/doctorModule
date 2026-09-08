@@ -15,7 +15,7 @@ import {
 import { TimePicker } from "@/components/ui";
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Mono, SectionHeader, Select, Table } from "./ui";
 import { useReceptionistData } from "./data-context";
-import { departments, QueueEntry } from "./mock-data";
+import type { QueueEntry } from "./mock-data";
 import { formatReceptionistDate, isPastReceptionistAppointment, nextBookableReceptionistTime, todayIso } from "./date-utils";
 
 const statusTone: Record<QueueEntry["status"], "pine" | "amber" | "slate"> = {
@@ -95,7 +95,10 @@ export function OPDManagement() {
     }));
   }, [doctors, patients]);
 
-  const opdDepartments = departments.filter((item) => item !== "Emergency");
+  const opdDepartments = React.useMemo(() => {
+    const names = Array.from(new Set([...doctors.map((doctor) => doctor.department), ...queue.map((entry) => entry.department)].filter(Boolean)));
+    return (names.length > 0 ? names : ["General Medicine"]).filter((item) => item !== "Emergency");
+  }, [doctors, queue]);
   const activeQueue = queue.filter((entry) => entry.status !== "Completed");
 
   const filteredQueue = queue.filter((entry) => {

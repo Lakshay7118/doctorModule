@@ -1,4 +1,4 @@
-import { doctors as receptionistDoctors } from "@/components/receptionist/mock-data";
+import type { ReceptionistDoctor } from "@/components/receptionist/mock-data";
 import { staff as clinicStaff } from "@/lib/mock-data";
 import { Workplace } from "@/lib/doctor-workflow-types";
 
@@ -93,7 +93,10 @@ const hospitalContacts: InternalContact[] = [
     lastMessage: "Insurance and discharge billing questions are open.",
     time: "Yesterday",
   },
-  ...receptionistDoctors.map<InternalContact>((doctor, index) => ({
+];
+
+function doctorContacts(doctors: ReceptionistDoctor[] = []): InternalContact[] {
+  return doctors.map<InternalContact>((doctor, index) => ({
     id: `hospital-doctor-${index + 1}`,
     name: doctor.name,
     role: "Doctor",
@@ -103,8 +106,8 @@ const hospitalContacts: InternalContact[] = [
     status: index % 3 === 1 ? "Busy" : "Online",
     lastMessage: `Available for ${doctor.department} coordination.`,
     time: index < 2 ? "Today" : "Yesterday",
-  })),
-];
+  }));
+}
 
 const seededClinicContacts: InternalContact[] = clinicStaff.map((member) => ({
   id: `clinic-${member.id}`,
@@ -129,8 +132,8 @@ export function getInternalContactsForScope(scope: InternalContactScope, workpla
   return scoped.length > 0 ? scoped : contacts;
 }
 
-export function getAllHospitalInternalContacts() {
-  return hospitalContacts;
+export function getAllHospitalInternalContacts(doctors: ReceptionistDoctor[] = []) {
+  return [...hospitalContacts, ...doctorContacts(doctors)];
 }
 
 export function initialInternalThreads(contacts: InternalContact[]) {

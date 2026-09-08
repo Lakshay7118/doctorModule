@@ -4,15 +4,7 @@ import * as React from "react";
 import { ArrowRightLeft, Bed, IndianRupee, Receipt } from "lucide-react";
 import { Badge, Card, Mono, SectionHeader, StatCard, Table } from "./ui";
 import { useReceptionistData } from "./data-context";
-
-interface BillingRow {
-  id: string;
-  patient: string;
-  uhid: string;
-  item: string;
-  amount: number;
-  status: "Paid" | "Pending" | "Advance received";
-}
+import type { BillingRow } from "./data-context";
 
 interface TransferRequest {
   id: string;
@@ -24,32 +16,22 @@ interface TransferRequest {
 }
 
 export function BillingCoordination() {
-  const { admissions, patients } = useReceptionistData();
+  const { admissions, billingRows } = useReceptionistData();
 
-  const rows: BillingRow[] = [
-    { id: "BILL-5511", patient: patients[0]?.name ?? "-", uhid: patients[0]?.uhid ?? "-", item: "Registration fee", amount: 200, status: "Paid" },
-    { id: "BILL-5512", patient: patients[0]?.name ?? "-", uhid: patients[0]?.uhid ?? "-", item: "Cardiology consultation", amount: 800, status: "Paid" },
-    { id: "BILL-5513", patient: patients[1]?.name ?? "-", uhid: patients[1]?.uhid ?? "-", item: "Advance for admission", amount: 15000, status: "Advance received" },
-    { id: "BILL-5514", patient: patients[2]?.name ?? "-", uhid: patients[2]?.uhid ?? "-", item: "Pediatric consultation", amount: 500, status: "Pending" },
-  ];
-  const transfers: TransferRequest[] = [
-    {
-      id: "TRF-2104",
-      patient: admissions[0]?.patient ?? patients[0]?.name ?? "-",
-      from: `${admissions[0]?.ward ?? "General Ward A"} / ${admissions[0]?.bed ?? "GWA-02"}`,
-      to: "ICU / ICU-04",
-      reason: "Clinical escalation approved; billing advance must be confirmed before bed transfer.",
-      status: "Awaiting billing",
-    },
-    {
-      id: "TRF-2105",
-      patient: admissions[1]?.patient ?? patients[1]?.name ?? "-",
-      from: `${admissions[1]?.ward ?? "Maternity"} / ${admissions[1]?.bed ?? "MAT-11"}`,
-      to: "Deluxe Room 1 / D1-03",
-      reason: "Patient requested room upgrade; differential charges reviewed with family.",
-      status: "Ready to transfer",
-    },
-  ];
+  const rows: BillingRow[] = billingRows;
+  const transfers: TransferRequest[] = admissions
+    .filter((admission) => admission.status === "Admitted")
+    .map((admission) => {
+      const pending = rows.some((row) => row.patientId === admission.patientId && row.status === "Pending");
+      return {
+        id: admission.id,
+        patient: admission.patient,
+        from: `${admission.ward} / ${admission.bed}`,
+        to: "Transfer request not raised",
+        reason: pending ? "Outstanding billing must be cleared before transfer." : "No pending invoice found for this admission.",
+        status: pending ? "Awaiting billing" : "Ready to transfer",
+      };
+    });
 
   const totalCollected = rows.filter((r) => r.status !== "Pending").reduce((sum, row) => sum + row.amount, 0);
   const totalPending = rows.filter((r) => r.status === "Pending").reduce((sum, row) => sum + row.amount, 0);

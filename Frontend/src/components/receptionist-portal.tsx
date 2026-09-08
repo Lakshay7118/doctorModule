@@ -7,6 +7,7 @@ import { navItems, ModuleId } from "./receptionist/nav-config";
 import { PortalStyles } from "./receptionist/portal-styles";
 import { useReceptionistData } from "./receptionist/data-context";
 import { Input, Badge } from "./receptionist/ui";
+import { formatReceptionistDate, todayIso } from "./receptionist/date-utils";
 import { signOutToRoot } from "@/lib/client-session";
 
 import { Dashboard } from "./receptionist/Dashboard";
@@ -110,6 +111,7 @@ function PortalShell({ moduleId, initialSearchQuery = "" }: { moduleId: ModuleId
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState(initialSearchQuery);
+  const todayLabel = formatReceptionistDate(todayIso());
 
   React.useEffect(() => {
     if (moduleId === "search") setSearchQuery(initialSearchQuery);
@@ -212,7 +214,7 @@ function PortalShell({ moduleId, initialSearchQuery = "" }: { moduleId: ModuleId
               <Zap size={16} />
             </button>
             <TopbarNotifications />
-            <Badge tone="pine">Today · 19 Aug 2026</Badge>
+            <Badge tone="pine">Today - {todayLabel}</Badge>
           </header>
 
           <main className="rp-content">

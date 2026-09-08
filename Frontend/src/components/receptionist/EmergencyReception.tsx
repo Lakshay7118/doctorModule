@@ -3,42 +3,30 @@
 import * as React from "react";
 import { Siren, Zap } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, Mono, SectionHeader, Select } from "./ui";
-import { useReceptionistData } from "./data-context";
-import { doctors } from "./mock-data";
-
-interface EmergencyCase {
-  id: string;
-  name: string;
-  age: string;
-  severity: "Critical" | "Serious" | "Stable";
-  doctor: string;
-  arrivedAt: string;
-}
+import { EmergencyCase, useReceptionistData } from "./data-context";
 
 export function EmergencyReception() {
-  const { pushNotification } = useReceptionistData();
+  const { doctors, emergencyCases, addEmergencyCase } = useReceptionistData();
   const [modalOpen, setModalOpen] = React.useState(false);
-  const [cases, setCases] = React.useState<EmergencyCase[]>([
-    { id: "ER-901", name: "Unidentified male, approx. 40y", age: "~40", severity: "Critical", doctor: "Dr. Ananya Rao", arrivedAt: "11:22 AM" },
-  ]);
-  const [form, setForm] = React.useState({ name: "", age: "", severity: "Serious" as EmergencyCase["severity"], doctor: doctors[0].name });
+  const [form, setForm] = React.useState({ name: "", age: "", severity: "Serious" as EmergencyCase["severity"], doctor: doctors[0]?.name ?? "" });
+
+  React.useEffect(() => {
+    setForm((current) => ({ ...current, doctor: current.doctor || doctors[0]?.name || "" }));
+  }, [doctors]);
 
   function handleRegister(event: React.FormEvent) {
     event.preventDefault();
-    if (!form.name) return;
+    if (!form.name || !form.doctor) return;
 
-    const entry: EmergencyCase = {
-      id: `ER-${902 + cases.length}`,
+    addEmergencyCase({
+      doctorId: doctors.find((doctor) => doctor.name === form.doctor)?.backendId,
       name: form.name,
       age: form.age || "Unknown",
       severity: form.severity,
       doctor: form.doctor,
-      arrivedAt: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
-    };
+    });
 
-    setCases((current) => [entry, ...current]);
-    pushNotification({ title: "Emergency registration", detail: `${entry.name} registered as ${entry.severity} - routed to ${entry.doctor}`, channel: "System" });
-    setForm({ name: "", age: "", severity: "Serious", doctor: doctors[0].name });
+    setForm({ name: "", age: "", severity: "Serious", doctor: doctors[0]?.name ?? "" });
     setModalOpen(false);
   }
 
@@ -48,7 +36,7 @@ export function EmergencyReception() {
     Stable: "slate",
   };
 
-  const sorted = [...cases].sort((a, b) => {
+  const sorted = [...emergencyCases].sort((a, b) => {
     const order = { Critical: 0, Serious: 1, Stable: 2 };
     return order[a.severity] - order[b.severity];
   });
@@ -61,7 +49,7 @@ export function EmergencyReception() {
         description="Handle emergency patient registrations, prioritize critical cases, coordinate with emergency doctors and initiate urgent admissions."
         action={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="coral">{cases.filter((item) => item.severity === "Critical").length} critical now</Badge>
+            <Badge tone="coral">{emergencyCases.filter((item) => item.severity === "Critical").length} critical now</Badge>
             <Button variant="danger" onClick={() => setModalOpen(true)}>
               <Siren size={16} /> New Emergency
             </Button>
