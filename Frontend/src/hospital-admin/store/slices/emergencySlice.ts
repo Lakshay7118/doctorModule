@@ -45,7 +45,7 @@ export interface AuditEvent {
   details?: string;
 }
 
-interface EmergencyState {
+export interface EmergencyState {
   cases: EmergencyCase[];
   auditLogs: AuditEvent[];
 }
@@ -159,6 +159,11 @@ export const emergencySlice = createSlice({
   name: 'emergency',
   initialState,
   reducers: {
+    hydrateEmergencyState: (state, action: PayloadAction<Partial<EmergencyState>>) => {
+      if (action.payload.cases) state.cases = action.payload.cases;
+      if (action.payload.auditLogs) state.auditLogs = action.payload.auditLogs;
+    },
+
     acknowledgeCase: (state, action: PayloadAction<{ id: string; actor: string }>) => {
       const caseItem = state.cases.find((c) => c.id === action.payload.id);
       if (caseItem) {
@@ -265,6 +270,7 @@ export const emergencySlice = createSlice({
 });
 
 export const {
+  hydrateEmergencyState,
   acknowledgeCase,
   updateCaseStatus,
   triggerFallback,

@@ -1,4 +1,5 @@
 type HttpMethod = "get" | "post" | "patch" | "put" | "delete";
+import { hospitalPaths } from "./hospital-openapi";
 type RouteDoc = readonly [string, HttpMethod, string, string, boolean?];
 
 import { permissionsForRoles, SYSTEM_ROLES } from "../config/permissions";
@@ -72,5 +73,5 @@ export const openApiDocument = {
   info: { title: "Qlyno HMS Laboratory Portal API", version: "1.0.0", description: "Multi-tenant laboratory operations API. Tenant and access scope are derived from verified tokens." },
   servers: [{ url: "/api" }],
   components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" }, refreshCookie: { type: "apiKey", in: "cookie", name: "qlyno_refresh" } } },
-  paths
+  paths: { ...paths, ...hospitalPaths() }
 };

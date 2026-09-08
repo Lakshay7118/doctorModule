@@ -152,6 +152,54 @@ enum IntegrationStatus {
 }
 
 model Tenant {
+  hospitalProfiles    HospitalProfile[]
+  hospitalRosters     HospitalRoster[]
+  hospitalContents    HospitalContent[]
+  hospitalReviews     HospitalReview[]
+  nursingAssignments  NursingAssignment[]
+  hospitalLabMappings HospitalLabService[]
+  hmsWorkplaces       workplaces[]
+
+  hmsHospitalOutbox HospitalOutbox[]
+
+  hmsAmbulanceTrip AmbulanceTrip[]
+
+  hmsHospitalAmbulance HospitalAmbulance[]
+
+  hmsHospitalIncident HospitalIncident[]
+
+  hmsHospitalDocument HospitalDocument[]
+
+  hmsRadiologyStudy RadiologyStudy[]
+
+  hmsPharmacyDispense PharmacyDispense[]
+
+  hmsPharmacyBatch PharmacyBatch[]
+
+  hmsHospitalVisitor HospitalVisitor[]
+
+  hmsEmergencyCase EmergencyCase[]
+
+  hmsHospitalSurgery HospitalSurgery[]
+
+  hmsMedicationAdministration MedicationAdministration[]
+
+  hmsNursingNote NursingNote[]
+
+  hmsHospitalAdmission HospitalAdmission[]
+
+  hmsHospitalBed HospitalBed[]
+
+  hmsHospitalWard HospitalWard[]
+
+  hmsInsuranceClaim InsuranceClaim[]
+
+  hmsHospitalPayer HospitalPayer[]
+
+  hmsHospitalRefund HospitalRefund[]
+
+  hmsHospitalInvoiceLine HospitalInvoiceLine[]
+
   id                      String                       @id @default(cuid())
   slug                    String                       @unique
   legalName               String
@@ -235,6 +283,8 @@ model Tenant {
 }
 
 model Site {
+  hmsWorkplaces workplaces[]
+
   id              String            @id @default(cuid())
   tenantId        String
   code            String
@@ -271,6 +321,10 @@ model Department {
 }
 
 model User {
+  hospitalRosters    HospitalRoster[]
+  nursingAssignments NursingAssignment[]
+  hmsAccount         user_accounts?
+
   id                 String                  @id @default(cuid())
   email              String                  @unique
   username           String?
@@ -524,27 +578,28 @@ model Practitioner {
 }
 
 model TestCatalogItem {
-  id             String                @id @default(cuid())
-  tenantId       String
-  departmentId   String?
-  code           String
-  name           String
-  method         String
-  specimenType   String
-  containerName  String
-  minVolume      String
-  stability      String
-  tatMinutes     Int
-  units          String
-  referenceRange String
-  criticalRange  String?
-  reflexRule     String?
-  version        Int                   @default(1)
-  status         String
-  effectiveDate  DateTime
-  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  department     Department?           @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  orderItems     LaboratoryOrderItem[]
+  hospitalMappings HospitalLabService[]
+  id               String                @id @default(cuid())
+  tenantId         String
+  departmentId     String?
+  code             String
+  name             String
+  method           String
+  specimenType     String
+  containerName    String
+  minVolume        String
+  stability        String
+  tatMinutes       Int
+  units            String
+  referenceRange   String
+  criticalRange    String?
+  reflexRule       String?
+  version          Int                   @default(1)
+  status           String
+  effectiveDate    DateTime
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  department       Department?           @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  orderItems       LaboratoryOrderItem[]
 
   @@unique([tenantId, code, version])
   @@index([tenantId, status])
@@ -1041,7 +1096,8 @@ model PurchaseOrder {
   total     Decimal             @db.Decimal(14, 2)
   createdAt DateTime            @default(now())
   tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  items     PurchaseOrderItem[]
+  items     PurchaseOr
+  derItem[]
 
   @@index([tenantId, status])
 }
@@ -1474,30 +1530,39 @@ model audit_events {
 }
 
 model billing_invoices {
-  id            String         @id @db.Uuid
-  invoiceNumber String         @unique
-  patientId     String         @db.Uuid
-  workplaceId   String         @db.Uuid
-  appointmentId String?        @unique @db.Uuid
-  status        PaymentStatus  @default(UNPAID)
-  subtotal      Decimal        @default(0) @db.Decimal(10, 2)
-  discount      Decimal        @default(0) @db.Decimal(10, 2)
-  tax           Decimal        @default(0) @db.Decimal(10, 2)
-  total         Decimal        @default(0) @db.Decimal(10, 2)
-  notes         String?
-  issuedAt      DateTime       @default(now())
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime
-  appointments  appointments?  @relation(fields: [appointmentId], references: [id])
-  patients      patients       @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  workplaces    workplaces     @relation(fields: [workplaceId], references: [id])
-  payment_txns  payment_txns[]
+  idempotencyKey String?
+  requestHash    String?
+  finalizedAt    DateTime?
+  lines          HospitalInvoiceLine[]
+  refunds        HospitalRefund[]
+  claims         InsuranceClaim[]
+  id             String                @id @db.Uuid
+  invoiceNumber  String                @unique
+  patientId      String                @db.Uuid
+  workplaceId    String                @db.Uuid
+  appointmentId  String?               @unique @db.Uuid
+  status         PaymentStatus         @default(UNPAID)
+  subtotal       Decimal               @default(0) @db.Decimal(10, 2)
+  discount       Decimal               @default(0) @db.Decimal(10, 2)
+  tax            Decimal               @default(0) @db.Decimal(10, 2)
+  total          Decimal               @default(0) @db.Decimal(10, 2)
+  notes          String?
+  issuedAt       DateTime              @default(now())
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime
+  appointments   appointments?         @relation(fields: [appointmentId], references: [id])
+  patients       patients              @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  workplaces     workplaces            @relation(fields: [workplaceId], references: [id])
+  payment_txns   payment_txns[]
 
+  @@unique([workplaceId, idempotencyKey])
   @@index([patientId, issuedAt])
   @@index([workplaceId, status])
 }
 
 model clinic_rooms {
+  hmsSurgeries HospitalSurgery[]
+
   id                  String               @id @db.Uuid
   workplaceId         String               @db.Uuid
   locationId          String?              @db.Uuid
@@ -1529,6 +1594,7 @@ model clinic_service_doctors {
 }
 
 model clinic_services {
+  labMappings            HospitalLabService[]
   id                     String                   @id @db.Uuid
   workplaceId            String                   @db.Uuid
   name                   String
@@ -1613,6 +1679,8 @@ model doctor_content {
 }
 
 model doctor_profiles {
+  hmsSurgeries HospitalSurgery[]
+
   id                                                     String                   @id @db.Uuid
   userAccountId                                          String                   @unique @db.Uuid
   fullName                                               String
@@ -1706,6 +1774,17 @@ model document_assets {
 }
 
 model encounters {
+  nursingAssignments NursingAssignment[]
+  hmsEmergencyCase   EmergencyCase[]
+
+  hmsHospitalSurgery HospitalSurgery[]
+
+  hmsMedicationAdministration MedicationAdministration[]
+
+  hmsNursingNote NursingNote[]
+
+  hmsHospitalAdmission HospitalAdmission[]
+
   id                   String                 @id @db.Uuid
   patientId            String                 @db.Uuid
   doctorId             String                 @db.Uuid
@@ -1787,6 +1866,8 @@ model inventory_items {
 }
 
 model investigation_orders {
+  radiologyStudy RadiologyStudy?
+
   id              String           @id @db.Uuid
   patientId       String           @db.Uuid
   doctorId        String           @db.Uuid
@@ -1914,6 +1995,24 @@ model patient_workplaces {
 }
 
 model patients {
+  hmsAmbulanceTrip AmbulanceTrip[]
+
+  hmsHospitalDocument HospitalDocument[]
+
+  hmsPharmacyDispense PharmacyDispense[]
+
+  hmsHospitalVisitor HospitalVisitor[]
+
+  hmsEmergencyCase EmergencyCase[]
+
+  hmsHospitalSurgery HospitalSurgery[]
+
+  hmsMedicationAdministration MedicationAdministration[]
+
+  hmsNursingNote NursingNote[]
+
+  hmsHospitalAdmission HospitalAdmission[]
+
   id                   String                 @id @db.Uuid
   qlynoId              String                 @unique
   fullName             String
@@ -1954,6 +2053,8 @@ model patients {
 }
 
 model payment_txns {
+  idempotencyKey   String?
+  requestHash      String?
   id               String           @id @db.Uuid
   invoiceId        String           @db.Uuid
   amount           Decimal          @db.Decimal(10, 2)
@@ -1964,10 +2065,15 @@ model payment_txns {
   createdAt        DateTime         @default(now())
   billing_invoices billing_invoices @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
+  @@unique([invoiceId, idempotencyKey])
   @@index([invoiceId])
 }
 
 model prescription_medications {
+  hmsPharmacyDispense PharmacyDispense[]
+
+  hmsMedicationAdministration MedicationAdministration[]
+
   id             String        @id @db.Uuid
   prescriptionId String        @db.Uuid
   medicineName   String
@@ -2159,6 +2265,9 @@ model tasks {
 }
 
 model user_accounts {
+  authUser User? @relation(fields: [authUserId], references: [id], onDelete: Restrict)
+
+  authUserId      String?          @unique
   id              String           @id @db.Uuid
   email           String           @unique
   phone           String?
@@ -2222,6 +2331,51 @@ model workplace_locations {
 }
 
 model workplaces {
+  hospitalProfile    HospitalProfile?
+  hospitalRosters    HospitalRoster[]
+  hospitalContents   HospitalContent[]
+  hospitalReviews    HospitalReview[]
+  nursingAssignments NursingAssignment[]
+  labMappings        HospitalLabService[]
+  tenant             Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  site               Site?                @relation(fields: [siteId], references: [id], onDelete: Restrict)
+
+  hmsHospitalOutbox HospitalOutbox[]
+
+  hmsAmbulanceTrip AmbulanceTrip[]
+
+  hmsHospitalAmbulance HospitalAmbulance[]
+
+  hmsHospitalIncident HospitalIncident[]
+
+  hmsHospitalDocument HospitalDocument[]
+
+  hmsRadiologyStudy RadiologyStudy[]
+
+  hmsPharmacyDispense PharmacyDispense[]
+
+  hmsPharmacyBatch PharmacyBatch[]
+
+  hmsHospitalVisitor HospitalVisitor[]
+
+  hmsEmergencyCase EmergencyCase[]
+
+  hmsHospitalSurgery HospitalSurgery[]
+
+  hmsMedicationAdministration MedicationAdministration[]
+
+  hmsNursingNote NursingNote[]
+
+  hmsHospitalAdmission HospitalAdmission[]
+
+  hmsHospitalBed HospitalBed[]
+
+  hmsHospitalWard HospitalWard[]
+
+  // Legacy workplaces remain inaccessible until explicitly assigned to a tenant.
+  tenantId             String?
+  siteId               String?
+  timeZone             String                 @default("Asia/Kolkata")
   id                   String                 @id @db.Uuid
   name                 String
   type                 WorkplaceType
@@ -2249,6 +2403,8 @@ model workplaces {
   staff_workplaces     staff_workplaces[]
   tasks                tasks[]
   workplace_locations  workplace_locations[]
+
+  @@index([tenantId, siteId])
 }
 
 enum HmsAccountStatus {
@@ -2452,4 +2608,554 @@ enum WorkplaceType {
   CLINIC
   HOSPITAL
   ONLINE_PRACTICE
+}
+
+model HospitalInvoiceLine {
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id          String           @id @default(uuid()) @db.Uuid
+  tenantId    String
+  invoiceId   String           @db.Uuid
+  description String
+  serviceCode String?
+  quantity    Int
+  unitPrice   Decimal          @db.Decimal(10, 2)
+  amount      Decimal          @db.Decimal(10, 2)
+  invoice     billing_invoices @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, invoiceId])
+}
+
+model HospitalRefund {
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String
+  invoiceId      String           @db.Uuid
+  amount         Decimal          @db.Decimal(10, 2)
+  reason         String
+  status         String           @default("REQUESTED")
+  requestedBy    String
+  approvedBy     String?
+  idempotencyKey String
+  requestHash    String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  invoice        billing_invoices @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, idempotencyKey])
+  @@index([tenantId, status])
+}
+
+model HospitalPayer {
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id           String           @id @default(uuid()) @db.Uuid
+  tenantId     String
+  name         String
+  type         String
+  contactEmail String?
+  active       Boolean          @default(true)
+  claims       InsuranceClaim[]
+
+  @@unique([tenantId, name])
+}
+
+model InsuranceClaim {
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id                     String           @id @default(uuid()) @db.Uuid
+  tenantId               String
+  invoiceId              String           @db.Uuid
+  payerId                String           @db.Uuid
+  policyNumber           String
+  preauthorizationNumber String?
+  claimedAmount          Decimal          @db.Decimal(10, 2)
+  approvedAmount         Decimal?         @db.Decimal(10, 2)
+  status                 String           @default("DRAFT")
+  notes                  String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  invoice                billing_invoices @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  payer                  HospitalPayer    @relation(fields: [payerId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, payerId, policyNumber])
+  @@index([tenantId, status])
+}
+
+model HospitalWard {
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id          String        @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String        @db.Uuid
+  name        String
+  type        String
+  beds        HospitalBed[]
+
+  @@unique([workplaceId, name])
+  @@index([tenantId, workplaceId])
+}
+
+model HospitalBed {
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id          String              @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String              @db.Uuid
+  wardId      String              @db.Uuid
+  code        String
+  status      String              @default("AVAILABLE")
+  dailyRate   Decimal             @default(0) @db.Decimal(10, 2)
+  ward        HospitalWard        @relation(fields: [wardId], references: [id], onDelete: Restrict)
+  admissions  HospitalAdmission[]
+
+  @@unique([workplaceId, code])
+  @@index([tenantId, status])
+}
+
+model HospitalAdmission {
+  encounters encounters @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+
+  patients patients @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id               String      @id @default(uuid()) @db.Uuid
+  tenantId         String
+  workplaceId      String      @db.Uuid
+  patientId        String      @db.Uuid
+  encounterId      String      @db.Uuid
+  bedId            String      @db.Uuid
+  status           String      @default("ADMITTED")
+  admittedAt       DateTime    @default(now())
+  dischargedAt     DateTime?
+  dischargeSummary String?
+  nursingCleared   Boolean     @default(false)
+  doctorCleared    Boolean     @default(false)
+  bed              HospitalBed @relation(fields: [bedId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, workplaceId, status])
+  @@index([patientId])
+}
+
+model NursingNote {
+  encounters encounters @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+
+  patients patients @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String
+  workplaceId  String   @db.Uuid
+  patientId    String   @db.Uuid
+  encounterId  String   @db.Uuid
+  authorUserId String
+  kind         String
+  note         String
+  recordedAt   DateTime @default(now())
+
+  @@index([tenantId, encounterId, recordedAt])
+}
+
+model MedicationAdministration {
+  prescription_medications prescription_medications @relation(fields: [prescriptionMedicationId], references: [id], onDelete: Restrict)
+
+  encounters encounters @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+
+  patients patients @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id                       String   @id @default(uuid()) @db.Uuid
+  tenantId                 String
+  workplaceId              String   @db.Uuid
+  patientId                String   @db.Uuid
+  encounterId              String   @db.Uuid
+  prescriptionMedicationId String   @db.Uuid
+  administeredBy           String
+  scheduledAt              DateTime
+  administeredAt           DateTime @default(now())
+  status                   String
+  note                     String?
+
+  @@unique([prescriptionMedicationId, scheduledAt])
+  @@index([tenantId, encounterId])
+}
+
+model HospitalSurgery {
+  surgeon doctor_profiles @relation(fields: [surgeonId], references: [id], onDelete: Restrict)
+  room    clinic_rooms    @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  encounters encounters @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+
+  patients patients @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String
+  workplaceId     String   @db.Uuid
+  patientId       String   @db.Uuid
+  encounterId     String   @db.Uuid
+  surgeonId       String   @db.Uuid
+  roomId          String   @db.Uuid
+  procedure       String
+  startsAt        DateTime
+  endsAt          DateTime
+  status          String   @default("SCHEDULED")
+  consentRecorded Boolean  @default(false)
+  preOpCleared    Boolean  @default(false)
+  operativeNote   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, workplaceId, startsAt])
+}
+
+model EmergencyCase {
+  encounters encounters @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+
+  patients patients @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id             String          @id @default(uuid()) @db.Uuid
+  tenantId       String
+  workplaceId    String          @db.Uuid
+  patientId      String          @db.Uuid
+  encounterId    String          @db.Uuid
+  triageLevel    String
+  complaint      String
+  status         String          @default("WAITING")
+  arrivedAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  ambulanceTrips AmbulanceTrip[]
+
+  @@index([tenantId, workplaceId, status])
+}
+
+model HospitalVisitor {
+  patients patients @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String
+  workplaceId  String    @db.Uuid
+  patientId    String    @db.Uuid
+  name         String
+  phone        String
+  purpose      String
+  checkedInAt  DateTime  @default(now())
+  checkedOutAt DateTime?
+
+  @@index([tenantId, workplaceId, checkedInAt])
+}
+
+model PharmacyBatch {
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id           String             @id @default(uuid()) @db.Uuid
+  tenantId     String
+  workplaceId  String             @db.Uuid
+  medicineName String
+  batchNumber  String
+  expiresAt    DateTime
+  quantity     Int
+  unitPrice    Decimal            @db.Decimal(10, 2)
+  dispenses    PharmacyDispense[]
+
+  @@unique([workplaceId, medicineName, batchNumber])
+  @@index([tenantId, expiresAt])
+}
+
+model PharmacyDispense {
+  prescription_medications prescription_medications @relation(fields: [prescriptionMedicationId], references: [id], onDelete: Restrict)
+
+  patients patients @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id                       String        @id @default(uuid()) @db.Uuid
+  tenantId                 String
+  workplaceId              String        @db.Uuid
+  patientId                String        @db.Uuid
+  prescriptionMedicationId String        @db.Uuid
+  batchId                  String        @db.Uuid
+  quantity                 Int
+  dispensedBy              String
+  idempotencyKey           String
+  requestHash              String
+  dispensedAt              DateTime      @default(now())
+  batch                    PharmacyBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, idempotencyKey])
+}
+
+model RadiologyStudy {
+  order investigation_orders @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String    @db.Uuid
+  orderId     String    @unique @db.Uuid
+  modality    String
+  scheduledAt DateTime?
+  status      String    @default("SCHEDULED")
+  findings    String?
+  impression  String?
+  critical    Boolean   @default(false)
+  reportedBy  String?
+  releasedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId, workplaceId, status])
+}
+
+model HospitalDocument {
+  patients patients? @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String    @db.Uuid
+  patientId   String?   @db.Uuid
+  title       String
+  category    String
+  storageKey  String
+  mimeType    String
+  expiresAt   DateTime?
+  uploadedBy  String
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId, workplaceId, category])
+}
+
+model HospitalIncident {
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String   @db.Uuid
+  title       String
+  description String
+  severity    String
+  status      String   @default("OPEN")
+  resolution  String?
+  reportedBy  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, workplaceId, status])
+}
+
+model HospitalAmbulance {
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String
+  workplaceId        String          @db.Uuid
+  registrationNumber String
+  type               String
+  driverName         String
+  driverPhone        String
+  driverLicense      String?
+  driverShift        String?
+  equipment          String[]        @default([])
+  baseLocation       String          @default("")
+  crew               Json?
+  telemetry          Json?
+  maintenanceNotes   String?
+  status             String          @default("AVAILABLE")
+  trips              AmbulanceTrip[]
+
+  @@unique([tenantId, registrationNumber])
+}
+
+model AmbulanceTrip {
+  patients patients? @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id                        String            @id @default(uuid()) @db.Uuid
+  tenantId                  String
+  workplaceId               String            @db.Uuid
+  patientId                 String?           @db.Uuid
+  emergencyCaseId           String?           @db.Uuid
+  ambulanceId               String            @db.Uuid
+  pickup                    String
+  destination               String
+  patientName               String?
+  isPatientLinked           Boolean           @default(true)
+  priority                  String            @default("URGENT")
+  notes                     String?
+  status                    String            @default("DISPATCHED")
+  dispatchedAt              DateTime          @default(now())
+  atSceneAt                 DateTime?
+  arrivedHospitalAt         DateTime?
+  completedAt               DateTime?
+  cancelledAt               DateTime?
+  cancelledReason           String?
+  rerouteHistory            Json              @default("[]")
+  reassignedFromAmbulanceId String?           @db.Uuid
+  ambulance                 HospitalAmbulance @relation(fields: [ambulanceId], references: [id], onDelete: Restrict)
+  emergencyCase             EmergencyCase?    @relation(fields: [emergencyCaseId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, workplaceId, status])
+  @@index([tenantId, emergencyCaseId])
+}
+
+model HospitalOutbox {
+  workplaces workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String    @db.Uuid
+  channel     String
+  recipient   String
+  subject     String
+  body        String
+  status      String    @default("QUEUED")
+  attempts    Int       @default(0)
+  availableAt DateTime  @default(now())
+  deliveredAt DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId, status, availableAt])
+}
+
+model HospitalLabService {
+  id          String          @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String          @db.Uuid
+  testId      String
+  serviceId   String          @db.Uuid
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workplace   workplaces      @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+  test        TestCatalogItem @relation(fields: [testId], references: [id], onDelete: Restrict)
+  service     clinic_services @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@unique([workplaceId, testId])
+}
+
+model HospitalProfile {
+  id                      String     @id @default(uuid()) @db.Uuid
+  tenantId                String
+  workplaceId             String     @unique @db.Uuid
+  description             String     @default("")
+  phone                   String?
+  email                   String?
+  website                 String?
+  facilities              String[]   @default([])
+  bookingSlotMinutes      Int        @default(20)
+  cancellationWindowHours Int        @default(24)
+  updatedAt               DateTime   @updatedAt
+  tenant                  Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workplace               workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+}
+
+model HospitalRoster {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String     @db.Uuid
+  userId      String
+  startsAt    DateTime
+  endsAt      DateTime
+  role        String
+  status      String     @default("SCHEDULED")
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workplace   workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, workplaceId, startsAt])
+}
+
+model NursingAssignment {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String     @db.Uuid
+  encounterId String     @db.Uuid
+  userId      String
+  assignedAt  DateTime   @default(now())
+  endedAt     DateTime?
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workplace   workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  encounter   encounters @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, workplaceId, userId, endedAt])
+}
+
+model HospitalContent {
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String
+  workplaceId  String     @db.Uuid
+  title        String
+  kind         String
+  body         String
+  status       String     @default("DRAFT")
+  authorUserId String
+  publishedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workplace    workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, workplaceId, status])
+}
+
+model HospitalReview {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String
+  workplaceId String     @db.Uuid
+  displayName String
+  rating      Int
+  comment     String
+  response    String?
+  respondedBy String?
+  respondedAt DateTime?
+  createdAt   DateTime   @default(now())
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workplace   workplaces @relation(fields: [workplaceId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, workplaceId, createdAt])
 }

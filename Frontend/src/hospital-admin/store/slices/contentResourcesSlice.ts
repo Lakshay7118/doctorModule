@@ -17,7 +17,7 @@ import {
   mockDepartmentContent,
 } from "@/hospital-admin/lib/mock-data/content-resources";
 
-interface ContentResourcesState {
+export interface ContentResourcesState {
   articles: ArticleItem[];
   videos: VideoAssetItem[];
   patientEducation: PatientEducationItem[];
@@ -37,6 +37,14 @@ export const contentResourcesSlice = createSlice({
   name: "contentResources",
   initialState,
   reducers: {
+    hydrateContentResourcesState: (state, action: PayloadAction<Partial<ContentResourcesState>>) => {
+      if (action.payload.articles) state.articles = action.payload.articles;
+      if (action.payload.videos) state.videos = action.payload.videos;
+      if (action.payload.patientEducation) state.patientEducation = action.payload.patientEducation;
+      if (action.payload.doctorContent) state.doctorContent = action.payload.doctorContent;
+      if (action.payload.departmentContent) state.departmentContent = action.payload.departmentContent;
+    },
+
     // ------------------------------------------
     // ARTICLES
     // ------------------------------------------
@@ -289,6 +297,7 @@ export const contentResourcesSlice = createSlice({
 });
 
 export const {
+  hydrateContentResourcesState,
   addArticle,
   updateArticle,
   archiveArticle,

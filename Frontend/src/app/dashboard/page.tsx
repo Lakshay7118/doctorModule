@@ -143,13 +143,13 @@ export default function DashboardPage() {
               <AreaChart data={TREND_DATA} margin={{ left: -20, right: 4, top: 4, bottom: 0 }}>
                 <defs>
                   <linearGradient id="tatFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#2F7CF6" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#2F7CF6" stopOpacity={0} />
+                    <stop offset="0%" stopColor="rgb(var(--qlyno-brand-500))" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="rgb(var(--qlyno-brand-500))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#E4EAF0", fontSize: 12 }} />
-                <Area type="monotone" dataKey="tat" stroke="#2F7CF6" strokeWidth={2} fill="url(#tatFill)" />
+                <XAxis dataKey="day" tick={{ fontSize: 11, fill: "rgb(var(--qlyno-ink-muted))" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, borderColor: "rgb(var(--qlyno-line))", fontSize: 12 }} />
+                <Area type="monotone" dataKey="tat" stroke="rgb(var(--qlyno-brand-500))" strokeWidth={2} fill="url(#tatFill)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

@@ -30,6 +30,13 @@ export const documentsSlice = createSlice({
   name: "documents",
   initialState,
   reducers: {
+    hydrateDocumentsState: (state, action: PayloadAction<Partial<DocumentsState>>) => {
+      if (action.payload.documents) state.documents = action.payload.documents;
+      if (action.payload.policyTemplates) state.policyTemplates = action.payload.policyTemplates;
+      if (action.payload.contracts) state.contracts = action.payload.contracts;
+      if (action.payload.analytics) state.analytics = action.payload.analytics;
+    },
+
     addDocument: (state, action: PayloadAction<HospitalDocumentItem>) => {
       state.documents.unshift(action.payload);
       state.analytics.totalDocumentsCount += 1;
@@ -170,6 +177,7 @@ export const documentsSlice = createSlice({
 });
 
 export const {
+  hydrateDocumentsState,
   addDocument,
   updateDocumentVersion,
   addPolicyTemplate,

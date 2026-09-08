@@ -1,6 +1,7 @@
 import { PrismaClient } from "../src/generated/prisma";
 import argon2 from "argon2";
 import { ROLE_PERMISSIONS, SYSTEM_ROLES, type SystemRole } from "../src/config/permissions";
+import { seedHospital } from "./seed-hospital";
 
 const prisma = new PrismaClient();
 const devPassword = "QlynoDemo!2026";
@@ -22,6 +23,7 @@ async function seedUser(input: { id: string; email: string; name: string; tenant
 }
 
 async function main() {
+  if (process.env.NODE_ENV === "production") throw new Error("Demo seeding is disabled in production");
   const sunrise = await prisma.tenant.upsert({ where: { slug: "sunrise-hospital" }, create: { id: "TEN-SUNRISE", slug: "sunrise-hospital", legalName: "Sunrise Hospital Private Limited", displayName: "Sunrise Hospital", mode: "HOSPITAL", billingEnabled: false, accreditation: ["NABL"], logoInitials: "SH" }, update: { mode: "HOSPITAL" } });
   const aarogya = await prisma.tenant.upsert({ where: { slug: "aarogya-diagnostics" }, create: { id: "TEN-AAROGYA", slug: "aarogya-diagnostics", legalName: "Aarogya Diagnostics Private Limited", displayName: "Aarogya Diagnostics", mode: "STANDALONE", billingEnabled: true, accreditation: ["NABL", "ISO 15189"], logoInitials: "AD" }, update: { mode: "STANDALONE" } });
   const sunriseSite = await prisma.site.upsert({ where: { tenantId_code: { tenantId: sunrise.id, code: "CENTRAL" } }, create: { id: "SITE-01", tenantId: sunrise.id, code: "CENTRAL", name: "Sunrise Hospital — Central Lab", type: "HOSPITAL_LAB", city: "Mumbai" }, update: {} });
@@ -98,6 +100,7 @@ async function main() {
   await prisma.communicationDelivery.upsert({ where: { id: "COM-DEL-001" }, create: { id: "COM-DEL-001", tenantId: sunrise.id, templateId: template.id, recipientMasked: "+91 ******0001", channel: "SMS", status: "DELIVERED", sentAt: new Date("2026-08-23T05:00:00.000Z") }, update: {} });
   await prisma.supportTicket.upsert({ where: { id: "SUP-001" }, create: { id: "SUP-001", tenantId: sunrise.id, requesterUserId: "USR-RECEPTION", subject: "Label printer calibration assistance", category: "PRINTER", severity: "MEDIUM", status: "OPEN", details: "Front desk label alignment requires support." }, update: {} });
   void contract; void manifest;
+  await seedHospital(prisma, sunrise.id, sunriseSite.id, seedUser);
   console.info(`Seed complete. Tenant slugs: ${sunrise.slug}, ${aarogya.slug}. Shared demo password: ${devPassword}`);
 }
 

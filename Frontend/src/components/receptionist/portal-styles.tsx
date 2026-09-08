@@ -15,18 +15,18 @@ const portalStyles = `
         --rp-amber-soft: rgb(var(--qlyno-warning-50));
         --rp-slate: rgb(var(--qlyno-ink-500));
         --rp-slate-soft: rgb(var(--qlyno-ink-50));
-        font-family: 'IBM Plex Sans', system-ui, sans-serif;
+        font-family: var(--font-sans);
         background: var(--rp-paper);
         color: var(--rp-ink);
         min-height: 100vh;
       }
 
       .rp-root h1, .rp-root h2, .rp-root h3, .rp-h1, .rp-h2, .rp-h3, .rp-logo, .rp-stat-value {
-        font-family: 'IBM Plex Sans', system-ui, sans-serif;
+        font-family: var(--font-sans);
       }
 
       .rp-mono, .rp-ticker-chip span:first-child {
-        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-family: var(--font-mono);
         font-variant-numeric: tabular-nums;
         letter-spacing: 0;
       }
@@ -37,7 +37,7 @@ const portalStyles = `
       .rp-sidebar {
         width: 280px;
         flex-shrink: 0;
-        background: rgba(255,255,255,0.92);
+        background: rgb(var(--qlyno-surface) / 0.92);
         color: var(--rp-ink);
         display: flex;
         flex-direction: column;
@@ -73,7 +73,7 @@ const portalStyles = `
         display: flex; align-items: center; gap: 12px;
         min-height: 64px;
         padding: 12px 28px;
-        background: rgba(255,255,255,0.95);
+        background: rgb(var(--qlyno-surface) / 0.95);
         backdrop-filter: blur(16px);
         border-bottom: 1px solid var(--rp-line);
       }
@@ -85,7 +85,7 @@ const portalStyles = `
       /* ---- Typography ---- */
       .rp-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--rp-slate); }
       .rp-h1 { font-size: 24px; font-weight: 600; margin-top: 4px; letter-spacing: 0; }
-      .rp-h2 { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--rp-ink); }
+      .rp-h2 { font-family: var(--font-sans); font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--rp-ink); }
       .rp-h3 { font-size: 12.5px; font-weight: 600; color: var(--rp-slate); text-transform: uppercase; letter-spacing: 0.04em; }
       .rp-sub { font-size: 13.5px; color: var(--rp-slate); margin-top: 4px; line-height: 1.5; }
       .rp-label { display: block; font-size: 12.5px; font-weight: 500; color: var(--rp-ink); margin-bottom: 6px; }
@@ -151,12 +151,12 @@ const portalStyles = `
       .rp-btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 9px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: filter 0.15s ease, background 0.15s ease; }
       .rp-btn-md { padding: 9px 16px; font-size: 13.5px; }
       .rp-btn-sm { padding: 6px 11px; font-size: 12.5px; }
-      .rp-btn-primary { background: var(--rp-pine); color: #fff; }
+      .rp-btn-primary { background: var(--rp-pine); color: rgb(var(--qlyno-surface)); }
       .rp-btn-primary:hover { background: var(--rp-pine-dark); }
       .rp-btn-secondary { background: var(--rp-pine-soft); color: var(--rp-pine-dark); }
       .rp-btn-secondary:hover { filter: brightness(0.97); }
       .rp-btn-ghost { background: transparent; color: var(--rp-ink); border-color: var(--rp-line); }
-      .rp-btn-danger { background: var(--rp-coral); color: #fff; }
+      .rp-btn-danger { background: var(--rp-coral); color: rgb(var(--qlyno-surface)); }
       .rp-btn-danger:hover { filter: brightness(0.95); }
       .rp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -232,7 +232,7 @@ const portalStyles = `
       .rp-quick-icon { display: inline-flex; padding: 9px; border-radius: 10px; }
       .rp-quick-icon-pine { background: var(--rp-pine-soft); color: var(--rp-pine-dark); }
       .rp-quick-icon-coral { background: var(--rp-coral-soft); color: var(--rp-coral); }
-      .rp-quick-label { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; font-weight: 700; }
+      .rp-quick-label { font-family: var(--font-sans); font-size: 15px; font-weight: 700; }
       .rp-quick-desc { font-size: 12px; color: var(--rp-slate); line-height: 1.4; }
 
       /* ---- Mobile sidebar ---- */

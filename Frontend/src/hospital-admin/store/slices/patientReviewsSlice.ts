@@ -42,6 +42,17 @@ export const patientReviewsSlice = createSlice({
   name: "patientReviews",
   initialState,
   reducers: {
+    hydratePatientReviewsState: (state, action: PayloadAction<Partial<PatientReviewsState>>) => {
+      if (action.payload.reviews) state.reviews = action.payload.reviews;
+      if (action.payload.npsResponses) state.npsResponses = action.payload.npsResponses;
+      if (action.payload.grievances) state.grievances = action.payload.grievances;
+      if (action.payload.doctorScorecards) state.doctorScorecards = action.payload.doctorScorecards;
+      if (action.payload.departmentScorecards) state.departmentScorecards = action.payload.departmentScorecards;
+      if (action.payload.analytics) state.analytics = action.payload.analytics;
+      if (typeof action.payload.isSyncingGoogle === "boolean") state.isSyncingGoogle = action.payload.isSyncingGoogle;
+      if (action.payload.lastSyncedAt) state.lastSyncedAt = action.payload.lastSyncedAt;
+    },
+
     respondToReview: (
       state,
       action: PayloadAction<{
@@ -269,6 +280,7 @@ export const patientReviewsSlice = createSlice({
 });
 
 export const {
+  hydratePatientReviewsState,
   respondToReview,
   linkReviewToDoctorOrDept,
   escalateReviewToGrievance,

@@ -1,0 +1,21 @@
+import { protectedRouter } from "../../middleware/protected";
+import { management } from "./management";
+import { clinical } from "./clinical";
+import { billing } from "./billing";
+import { care } from "./care";
+import { fulfillment } from "./fulfillment";
+import { operations } from "./operations";
+import { laboratory } from "./laboratory";
+import { administration } from "./administration";
+import { communication } from "./communication";
+
+export const hospitalRoutes = protectedRouter();
+management(hospitalRoutes);
+clinical(hospitalRoutes);
+billing(hospitalRoutes);
+care(hospitalRoutes);
+fulfillment(hospitalRoutes);
+operations(hospitalRoutes);
+laboratory(hospitalRoutes);
+administration(hospitalRoutes);
+communication(hospitalRoutes);

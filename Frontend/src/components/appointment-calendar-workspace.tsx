@@ -417,7 +417,7 @@ export function AppointmentCalendarWorkspace() {
     return (
       <div className={clsx("min-h-[calc(100vh-9rem)] overflow-hidden rounded-md border border-line bg-white shadow-card", modernTheme && "shadow-lift")}>
         <div className="flex min-h-[calc(100vh-9rem)]">
-          <aside className="hidden w-[268px] shrink-0 border-r border-line bg-[#f4f5f8] lg:block">
+          <aside className="hidden w-[268px] shrink-0 border-r border-line bg-paper lg:block">
             <div className="border-b border-line bg-white px-4 py-4">
               <Skeleton className="h-10 w-full" />
             </div>
@@ -485,7 +485,7 @@ export function AppointmentCalendarWorkspace() {
       )}
     >
       <div className="flex min-h-[calc(100vh-9rem)]">
-        <aside className="hidden w-[268px] shrink-0 border-r border-line bg-[#f4f5f8] lg:block">
+        <aside className="hidden w-[268px] shrink-0 border-r border-line bg-paper lg:block">
           <div className="border-b border-line bg-white px-4 py-4">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" size={16} />
@@ -499,7 +499,7 @@ export function AppointmentCalendarWorkspace() {
           </div>
           <div className="border-b border-line">
             <p className="px-5 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-ink-muted">Doctors</p>
-            <button className="flex w-full items-center justify-between bg-[#747484] px-5 py-2 text-left text-sm font-semibold text-white">
+            <button className="flex w-full items-center justify-between bg-brand-500 px-5 py-2 text-left text-sm font-semibold text-white">
               <span>All doctors</span>
               <span>{visibleAppointments.length}</span>
             </button>
@@ -550,7 +550,7 @@ export function AppointmentCalendarWorkspace() {
                       onClick={() => setViewMode(item.value)}
                       className={clsx(
                         "rounded px-4 py-1.5 text-xs font-semibold",
-                        viewMode === item.value ? "bg-[#747484] text-white" : "text-ink-muted hover:bg-paper"
+                        viewMode === item.value ? "bg-brand-500 text-white" : "text-ink-muted hover:bg-paper"
                       )}
                     >
                       {item.label}
@@ -724,7 +724,7 @@ export function AppointmentCalendarWorkspace() {
                         onClick={() => setSelectedDate(date)}
                         className={clsx(
                           "border-r border-line px-3 py-3 text-center text-xs font-semibold transition-colors",
-                          date === selectedDate ? "bg-[#747484] text-white" : "text-ink-muted hover:bg-paper"
+                          date === selectedDate ? "bg-brand-500 text-white" : "text-ink-muted hover:bg-paper"
                         )}
                       >
                         {formatDayHeader(date)}
@@ -809,7 +809,7 @@ export function AppointmentCalendarWorkspace() {
               </div>
               <div className="grid grid-cols-4 border-b border-line px-4 py-4 text-center">
                 {[
-                  ["Today", scheduleCounts.today, "bg-[#747484]"],
+                  ["Today", scheduleCounts.today, "bg-brand-500"],
                   ["Waiting", scheduleCounts.waiting, "bg-alert-500"],
                   ["Engaged", scheduleCounts.engaged, "bg-cyan-500"],
                   ["Done", scheduleCounts.done, "bg-sage-500"],

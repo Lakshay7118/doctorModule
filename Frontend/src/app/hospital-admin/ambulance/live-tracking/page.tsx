@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useDispatch, useSelector } from "react-redux";
 import {
@@ -45,9 +45,10 @@ import {
 } from "@/hospital-admin/components/ui/select";
 import { Switch } from "@/hospital-admin/components/ui/switch";
 import { PageHeader } from "@/hospital-admin/components/shared/page-header";
-import { RootState } from "@/hospital-admin/store/store";
+import { AppDispatch, RootState } from "@/hospital-admin/store/store";
 import {
   Ambulance,
+  hydrateAmbulanceState,
   reassignAmbulance,
   updateDispatchDestination,
 } from "@/hospital-admin/store/slices/ambulanceSlice";
@@ -55,16 +56,37 @@ import { triggerFallback } from "@/hospital-admin/store/slices/emergencySlice";
 import { RECEIVING_HOSPITALS } from "@/hospital-admin/components/ambulance/DispatchCreationModal";
 import { STATUS_CONFIG } from "@/hospital-admin/lib/ambulance-status";
 import { useToast } from "@/hospital-admin/hooks/use-toast";
+import {
+  getBackendAmbulanceState,
+  getHmsAuthSession,
+  reassignBackendDispatch,
+  rerouteBackendDispatch,
+} from "@/hospital-admin/lib/hms-api";
 
 const DELEGATION_STRING = "Performed by Hospital Admin • acting within Ambulance Dispatch workflow";
 
 export default function LiveTrackingPage() {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const { toast } = useToast();
 
   const ambulances = useSelector((state: RootState) => state.ambulance.fleet);
   const isGlobalGpsActive = useSelector((state: RootState) => state.ambulance.isGlobalGpsActive);
   const emergencyCases = useSelector((state: RootState) => state.emergency.cases);
+  const [isBackendConnected, setIsBackendConnected] = useState(false);
+
+  const refreshBackendState = useCallback(async () => {
+    const state = await getBackendAmbulanceState();
+    dispatch(hydrateAmbulanceState({ fleet: state.fleet, dispatchHistory: state.dispatchHistory }));
+    setIsBackendConnected(true);
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (!getHmsAuthSession()) return;
+    refreshBackendState().catch((error) => {
+      setIsBackendConnected(false);
+      console.warn("Failed to load backend ambulance tracking state:", error);
+    });
+  }, [refreshBackendState]);
 
   const [isGpsActive, setIsGpsActive] = useState<boolean>(isGlobalGpsActive !== false);
 
@@ -104,18 +126,32 @@ export default function LiveTrackingPage() {
   const availableReplacements = ambulances.filter((a) => a.status === "Available" && a.id !== swapAmb?.id);
 
   // Handle Hospital Diversion Re-route (Rule CAN #19)
-  const handleConfirmReroute = (e: React.FormEvent) => {
+  const handleConfirmReroute = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rerouteAmb || !newDestination) return;
 
-    // 1. Update Ambulance Dispatch History
-    dispatch(
-      updateDispatchDestination({
-        ambulanceId: rerouteAmb.id,
-        newDestination: newDestination,
-        reason: rerouteReason,
-      })
-    );
+    if (isBackendConnected) {
+      try {
+        await rerouteBackendDispatch(rerouteAmb.id, newDestination, rerouteReason);
+        await refreshBackendState();
+      } catch (error) {
+        toast({
+          title: "Backend Re-route Failed",
+          description: error instanceof Error ? error.message : "Ambulance could not be rerouted.",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else {
+      // 1. Update Ambulance Dispatch History
+      dispatch(
+        updateDispatchDestination({
+          ambulanceId: rerouteAmb.id,
+          newDestination: newDestination,
+          reason: rerouteReason,
+        })
+      );
+    }
 
     // 2. Sync to Emergency Case timeline in Module 08
     if (rerouteAmb.currentCaseId) {
@@ -137,19 +173,33 @@ export default function LiveTrackingPage() {
   };
 
   // Handle Vehicle Failure Swap (Rule CAN #18)
-  const handleConfirmVehicleSwap = (e: React.FormEvent) => {
+  const handleConfirmVehicleSwap = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!swapAmb || !replacementAmbId) return;
 
     const replacement = ambulances.find((a) => a.id === replacementAmbId);
 
-    dispatch(
-      reassignAmbulance({
-        failedAmbulanceId: swapAmb.id,
-        newAmbulanceId: replacementAmbId,
-        reason: breakdownReason,
-      })
-    );
+    if (isBackendConnected) {
+      try {
+        await reassignBackendDispatch(swapAmb.id, replacementAmbId, breakdownReason);
+        await refreshBackendState();
+      } catch (error) {
+        toast({
+          title: "Backend Reassignment Failed",
+          description: error instanceof Error ? error.message : "Replacement ambulance could not be assigned.",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else {
+      dispatch(
+        reassignAmbulance({
+          failedAmbulanceId: swapAmb.id,
+          newAmbulanceId: replacementAmbId,
+          reason: breakdownReason,
+        })
+      );
+    }
 
     toast({
       title: "Vehicle Escalation & Handover Executed",

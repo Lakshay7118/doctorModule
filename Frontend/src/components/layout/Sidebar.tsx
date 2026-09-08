@@ -71,7 +71,7 @@ function NavGroupBlock({ collapsed, onNavigate }: { collapsed: boolean; onNaviga
                         className={cn(
                           "flex flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[13px] font-semibold transition-colors",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue",
-                          active ? "bg-brand-blue text-white shadow-sm" : "text-text-muted hover:bg-[#F0F3EE] hover:text-text-main",
+                          active ? "bg-brand-blue text-white shadow-sm" : "text-text-muted hover:bg-brand-50 hover:text-text-main",
                           collapsed && "justify-center"
                         )}
                       >
@@ -179,7 +179,7 @@ function SidebarContent({ collapsed, onNavigate, onToggleCollapse, showCollapseC
 
       {!collapsed && (
         <div className="border-b border-app-border px-5 py-3">
-          <span className="inline-flex items-center rounded-full bg-[#E6F0EC] px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-brand-blue">
+          <span className="inline-flex items-center rounded-full bg-brand-50 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-brand-blue">
             {modeConfig.id === "hospital" ? "HMS Integrated" : modeConfig.id === "b2b" ? "Reference / B2B" : modeConfig.id === "hybrid" ? "Hybrid Ops" : "Standalone"} mode
           </span>
         </div>

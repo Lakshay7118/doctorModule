@@ -23,10 +23,10 @@ function MiniBar({ data }: { data: { label: string; value: number }[] }) {
     <div className="h-48">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ left: -20, right: 4, top: 4, bottom: 0 }}>
-          <CartesianGrid vertical={false} stroke="#E4EAF0" />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#E4EAF0", fontSize: 12 }} />
-          <Bar dataKey="value" fill="#2F7CF6" radius={[6, 6, 0, 0]} />
+          <CartesianGrid vertical={false} stroke="rgb(var(--qlyno-line))" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "rgb(var(--qlyno-ink-muted))" }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={{ borderRadius: 12, borderColor: "rgb(var(--qlyno-line))", fontSize: 12 }} />
+          <Bar dataKey="value" fill="rgb(var(--qlyno-brand-500))" radius={[6, 6, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

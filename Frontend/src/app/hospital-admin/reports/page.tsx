@@ -1042,7 +1042,7 @@ function AdminReportsContent() {
                       <ResponsiveContainer width="100%" height="100%">
                         {activeReport.chartType === "bar" ? (
                           <BarChart data={computedReportData.chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--qlyno-line))" />
                             <XAxis dataKey="period" tickLine={false} axisLine={false} fontSize={11} />
                             <YAxis tickLine={false} axisLine={false} fontSize={11} />
                             <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
@@ -1052,7 +1052,7 @@ function AdminReportsContent() {
                           </BarChart>
                         ) : activeReport.chartType === "area" ? (
                           <AreaChart data={computedReportData.chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--qlyno-line))" />
                             <XAxis dataKey="period" tickLine={false} axisLine={false} fontSize={11} />
                             <YAxis tickLine={false} axisLine={false} fontSize={11} />
                             <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
@@ -1070,7 +1070,7 @@ function AdminReportsContent() {
                           </AreaChart>
                         ) : activeReport.chartType === "composed" ? (
                           <ComposedChart data={computedReportData.chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--qlyno-line))" />
                             <XAxis dataKey="period" tickLine={false} axisLine={false} fontSize={11} />
                             <YAxis tickLine={false} axisLine={false} fontSize={11} />
                             <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
@@ -1084,7 +1084,7 @@ function AdminReportsContent() {
                           </ComposedChart>
                         ) : (
                           <LineChart data={computedReportData.chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--qlyno-line))" />
                             <XAxis dataKey="period" tickLine={false} axisLine={false} fontSize={11} />
                             <YAxis tickLine={false} axisLine={false} fontSize={11} />
                             <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
@@ -1369,15 +1369,15 @@ function AdminReportsContent() {
                         <ResponsiveContainer width="100%" height="100%">
                           {report.chartType === "bar" ? (
                             <BarChart data={report.data}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--qlyno-line))" />
                               <XAxis dataKey="dimension" tickLine={false} axisLine={false} fontSize={10} interval={0} />
                               <YAxis tickLine={false} axisLine={false} fontSize={10} />
                               <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 11 }} />
-                              <Bar dataKey="metricVal" name={report.primaryMetric} fill="#0d9488" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="metricVal" name={report.primaryMetric} fill="rgb(var(--qlyno-brand-500))" radius={[4, 4, 0, 0]} />
                             </BarChart>
                           ) : report.chartType === "line" ? (
                             <LineChart data={report.data}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--qlyno-line))" />
                               <XAxis dataKey="dimension" tickLine={false} axisLine={false} fontSize={10} interval={0} />
                               <YAxis tickLine={false} axisLine={false} fontSize={10} />
                               <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 11 }} />
@@ -1385,15 +1385,15 @@ function AdminReportsContent() {
                                 type="monotone"
                                 dataKey="metricVal"
                                 name={report.primaryMetric}
-                                stroke="#0284c7"
+                                stroke="rgb(var(--qlyno-brand-400))"
                                 strokeWidth={2.5}
-                                dot={{ r: 4, fill: "#0284c7" }}
+                                dot={{ r: 4, fill: "rgb(var(--qlyno-brand-400))" }}
                                 activeDot={{ r: 6 }}
                               />
                             </LineChart>
                           ) : (
                             <AreaChart data={report.data}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(var(--qlyno-line))" />
                               <XAxis dataKey="dimension" tickLine={false} axisLine={false} fontSize={10} interval={0} />
                               <YAxis tickLine={false} axisLine={false} fontSize={10} />
                               <RechartsTooltip contentStyle={{ borderRadius: 8, fontSize: 11 }} />
@@ -1401,9 +1401,9 @@ function AdminReportsContent() {
                                 type="monotone"
                                 dataKey="metricVal"
                                 name={report.primaryMetric}
-                                fill="#0d9488"
+                                fill="rgb(var(--qlyno-brand-500))"
                                 fillOpacity={0.25}
-                                stroke="#0d9488"
+                                stroke="rgb(var(--qlyno-brand-500))"
                                 strokeWidth={2}
                               />
                             </AreaChart>

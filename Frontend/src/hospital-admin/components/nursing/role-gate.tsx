@@ -32,12 +32,12 @@ export function RoleGate({
 
   const homeHref =
     role === "nurse"
-      ? "/nurse"
+      ? "/hospital-admin/nurse"
       : role === "support_staff"
-      ? "/support-staff"
+      ? "/hospital-admin/support-staff"
       : role === "nurse_lead" || role === "senior_nurse"
-      ? "/nurse-station"
-      : "/dashboard";
+      ? "/hospital-admin/nurse-station"
+      : "/hospital-admin/dashboard";
 
   return (
     <div className="flex items-center justify-center p-6 min-h-[50vh]">

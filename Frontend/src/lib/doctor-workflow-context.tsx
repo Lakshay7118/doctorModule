@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   clinicQueue as clinicQueueSeed,
   doctorShifts as doctorShiftsSeed,
@@ -57,6 +58,7 @@ const WORKFLOW_STATE_SCOPE = "doctor-workflow";
 const WORKFLOW_STATE_ENTITY_ID = "doctor-workspace";
 
 export function DoctorWorkflowProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const { setSelectedWorkplaceId, setWorkContext } = useMode();
   const [workplaces, setWorkplaces] = useState<Workplace[]>([]);
   const [shifts, setShifts] = useState<DoctorShift[]>([]);
@@ -71,6 +73,17 @@ export function DoctorWorkflowProvider({ children }: { children: ReactNode }) {
   const selectedShift = shifts.find((shift) => shift.id === selectedShiftId);
 
   useEffect(() => {
+    if (!pathname.startsWith("/doctor")) {
+      setBackendDoctorId(undefined);
+      setWorkplaces(doctorWorkplaces);
+      setShifts(doctorShiftsSeed);
+      setClinicQueue(clinicQueueSeed);
+      setHospitalWorklist(hospitalWorklistSeed);
+      setDoctorTasks(doctorTasksSeed);
+      setIsLoadingWorkflow(false);
+      return;
+    }
+
     let cancelled = false;
     let pendingLoads = 2;
     const finishLoad = () => {
@@ -113,7 +126,7 @@ export function DoctorWorkflowProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [setSelectedWorkplaceId]);
+  }, [pathname, setSelectedWorkplaceId]);
 
   function persistWorkflowState(snapshot: WorkflowStateSnapshot) {
     void saveBackendState(WORKFLOW_STATE_SCOPE, WORKFLOW_STATE_ENTITY_ID, snapshot).catch(() => undefined);

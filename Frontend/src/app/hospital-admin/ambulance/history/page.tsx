@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import {
   AlertTriangle,
   Ambulance as AmbulanceIcon,
@@ -33,9 +33,10 @@ import {
 } from "@/hospital-admin/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/hospital-admin/components/ui/table";
 import { PageHeader } from "@/hospital-admin/components/shared/page-header";
-import { RootState } from "@/hospital-admin/store/store";
-import { DispatchStatus } from "@/hospital-admin/store/slices/ambulanceSlice";
+import { AppDispatch, RootState } from "@/hospital-admin/store/store";
+import { DispatchStatus, hydrateAmbulanceState } from "@/hospital-admin/store/slices/ambulanceSlice";
 import { useToast } from "@/hospital-admin/hooks/use-toast";
+import { getBackendAmbulanceState, getHmsAuthSession } from "@/hospital-admin/lib/hms-api";
 
 const STATUS_BADGES: Record<
   DispatchStatus,
@@ -50,6 +51,7 @@ const STATUS_BADGES: Record<
 };
 
 export default function AmbulanceHistoryPage() {
+  const dispatch = useDispatch<AppDispatch>();
   const { toast } = useToast();
   const history = useSelector((state: RootState) => state.ambulance.dispatchHistory);
   const ambulances = useSelector((state: RootState) => state.ambulance.fleet);
@@ -57,6 +59,13 @@ export default function AmbulanceHistoryPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [vehicleFilter, setVehicleFilter] = useState("All");
+
+  useEffect(() => {
+    if (!getHmsAuthSession()) return;
+    getBackendAmbulanceState()
+      .then((state) => dispatch(hydrateAmbulanceState({ fleet: state.fleet, dispatchHistory: state.dispatchHistory })))
+      .catch((error) => console.warn("Failed to load backend ambulance history:", error));
+  }, [dispatch]);
 
   const filteredHistory = useMemo(() => {
     return history

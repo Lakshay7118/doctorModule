@@ -31,6 +31,7 @@ import { supportRoutes } from "./modules/support/routes";
 import { settingsRoutes } from "./modules/settings/routes";
 import { openApiDocument } from "./docs/openapi";
 import { protectedRouter } from "./middleware/protected";
+import { hospitalRoutes } from "./modules/hospital/routes";
 
 export function createApp() {
   const env = getEnv(); const app = express(); const origins = new Set(env.CORS_ORIGINS.split(",").map((item) => item.trim()).filter(Boolean));
@@ -40,7 +41,15 @@ export function createApp() {
   app.use(cors({ credentials: true, origin: (origin, callback) => { if (!origin || origins.has(origin)) callback(null, true); else callback(null, false); } }));
   app.use(hpp(), express.json({ limit: "256kb" }), express.urlencoded({ extended: false, limit: "64kb" }), cookieParser(), generalRateLimit);
   app.get(["/health", "/api/health"], (_req, res) => { res.json({ status: "ok" }); });
-  if (env.NODE_ENV !== "production") { const docs = protectedRouter(); docs.get("/openapi.json", (_req, res) => res.json(openApiDocument)); docs.use("/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument)); app.use("/api", docs); }
+  if (env.NODE_ENV !== "production") {
+    const docs = protectedRouter();
+    docs.use(swaggerUi.serve, swaggerUi.setup(openApiDocument));
+    app.use("/api/docs", docs);
+    const spec = protectedRouter();
+    spec.get("/", (_req, res) => res.json(openApiDocument));
+    app.use("/api/openapi.json", spec);
+  }
   app.use("/api/auth", authRateLimit, authRoutes); app.use("/api/users", userRoutes); app.use("/api/admin", adminRoutes); app.use("/api/patients", patientRoutes); app.use("/api/encounters", encounterRoutes); app.use("/api/clients", clientRoutes); app.use("/api/practitioners", practitionerRoutes); app.use("/api/catalog", catalogRoutes); app.use("/api/orders", orderRoutes); app.use("/api/collection", collectionRoutes); app.use("/api/accessioning", accessioningRoutes); app.use("/api/specimens", specimenRoutes); app.use("/api/logistics", logisticsRoutes); app.use("/api/workbench", workbenchRoutes); app.use("/api/results", resultRoutes); app.use("/api/reports", reportRoutes); app.use("/api/quality", qualityRoutes); app.use("/api/inventory", inventoryRoutes); app.use("/api/billing", billingRoutes); app.use("/api/communications", communicationRoutes); app.use("/api/integrations", integrationRoutes); app.use("/api/dashboard", dashboardRoutes); app.use("/api/analytics", analyticsRoutes); app.use("/api/queues", queueRoutes); app.use("/api/scheduling", schedulingRoutes); app.use("/api/support", supportRoutes); app.use("/api/settings", settingsRoutes);
+  app.use("/api/hms", hospitalRoutes);
   app.use(notFoundHandler, errorHandler); return app;
 }

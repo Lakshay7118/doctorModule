@@ -31,7 +31,30 @@ async function createRefreshSession(user: AuthenticatedUser, req: Request, famil
 }
 
 export async function login(input: { identifier: string; password: string; tenantSlug: string }, req: Request): Promise<{ accessToken: string; refreshToken: string; user: AuthenticatedUser }> {
-  const identifier = input.identifier.trim().toLowerCase(); const tenant = await prisma.tenant.findUnique({ where: { slug: input.tenantSlug.toLowerCase() } });
+  const identifier = input.identifier.trim().toLowerCase(); const env = getEnv();
+  if (env.NODE_ENV === "development" && env.AUTH_DISABLED) {
+    const roleByIdentifier: Record<string, SystemRole[]> = {
+      "doctor@hospital.example": ["hospital_doctor"],
+      "reception@hospital.example": ["hospital_receptionist"],
+      "nurse@hospital.example": ["hospital_nurse"],
+      "billing@hospital.example": ["hospital_billing"],
+      "operations@hospital.example": ["hospital_operations"],
+    };
+    const roles = roleByIdentifier[identifier] ?? ["tenant_admin"];
+    const user: AuthenticatedUser = {
+      userId: `DEV-${identifier.replace(/[^a-z0-9]+/g, "-").toUpperCase()}`,
+      membershipId: "DEV-MEMBERSHIP",
+      tenantId: "TEN-SUNRISE",
+      status: "ACTIVE",
+      roles,
+      permissions: permissionsForRoles(roles),
+      siteIds: ["SITE-01"],
+      departmentIds: ["DEPT-HEMA", "DEPT-CHEM", "DEPT-01", "DEPT-02", "DEPT-03", "DEPT-05"],
+    };
+    return { accessToken: signAccessToken(user), refreshToken: randomToken(), user };
+  }
+
+  const tenant = await prisma.tenant.findUnique({ where: { slug: input.tenantSlug.toLowerCase() } });
   const user = tenant ? await prisma.user.findFirst({ where: { OR: [{ email: identifier }, { username: identifier }], memberships: { some: { tenantId: tenant.id } } } }) : null;
   const attemptBase = { tenantId: tenant?.id, userId: user?.id, identifierHash: hashIdentifier(`${input.tenantSlug}:${identifier}`), ipAddress: req.ip || "unknown" };
   if (!user || !user.passwordHash) { await prisma.authenticationAttempt.create({ data: { ...attemptBase, success: false, reason: "INVALID_CREDENTIALS" } }); throw unauthorized(); }

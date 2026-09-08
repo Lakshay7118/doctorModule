@@ -46,15 +46,15 @@ export default function QcDetailPage({ params }: { params: { id: string } }) {
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={LJ_POINTS} margin={{ left: -10, right: 10, top: 10, bottom: 0 }}>
-              <XAxis dataKey="run" tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} label={{ value: "Run #", position: "insideBottom", offset: -2, fontSize: 11, fill: "#6B7280" }} />
-              <YAxis domain={[MEAN - 4 * SD, MEAN + 4 * SD]} tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#E4EAF0", fontSize: 12 }} />
-              <ReferenceLine y={MEAN} stroke="#2F9D68" strokeDasharray="4 2" label={{ value: "Mean", fontSize: 10, fill: "#2F9D68" }} />
-              <ReferenceLine y={MEAN + 2 * SD} stroke="#D99100" strokeDasharray="3 3" label={{ value: "+2SD", fontSize: 10, fill: "#D99100" }} />
-              <ReferenceLine y={MEAN - 2 * SD} stroke="#D99100" strokeDasharray="3 3" label={{ value: "-2SD", fontSize: 10, fill: "#D99100" }} />
-              <ReferenceLine y={MEAN + 3 * SD} stroke="#D64545" strokeDasharray="2 2" label={{ value: "+3SD", fontSize: 10, fill: "#D64545" }} />
-              <ReferenceLine y={MEAN - 3 * SD} stroke="#D64545" strokeDasharray="2 2" label={{ value: "-3SD", fontSize: 10, fill: "#D64545" }} />
-              <Line type="monotone" dataKey="value" stroke="#2F7CF6" strokeWidth={2} dot={{ r: 3 }} />
+              <XAxis dataKey="run" tick={{ fontSize: 11, fill: "rgb(var(--qlyno-ink-muted))" }} axisLine={false} tickLine={false} label={{ value: "Run #", position: "insideBottom", offset: -2, fontSize: 11, fill: "rgb(var(--qlyno-ink-muted))" }} />
+              <YAxis domain={[MEAN - 4 * SD, MEAN + 4 * SD]} tick={{ fontSize: 11, fill: "rgb(var(--qlyno-ink-muted))" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: 12, borderColor: "rgb(var(--qlyno-line))", fontSize: 12 }} />
+              <ReferenceLine y={MEAN} stroke="rgb(var(--qlyno-success-500))" strokeDasharray="4 2" label={{ value: "Mean", fontSize: 10, fill: "rgb(var(--qlyno-success-500))" }} />
+              <ReferenceLine y={MEAN + 2 * SD} stroke="rgb(var(--qlyno-warning-500))" strokeDasharray="3 3" label={{ value: "+2SD", fontSize: 10, fill: "rgb(var(--qlyno-warning-500))" }} />
+              <ReferenceLine y={MEAN - 2 * SD} stroke="rgb(var(--qlyno-warning-500))" strokeDasharray="3 3" label={{ value: "-2SD", fontSize: 10, fill: "rgb(var(--qlyno-warning-500))" }} />
+              <ReferenceLine y={MEAN + 3 * SD} stroke="rgb(var(--qlyno-alert-500))" strokeDasharray="2 2" label={{ value: "+3SD", fontSize: 10, fill: "rgb(var(--qlyno-alert-500))" }} />
+              <ReferenceLine y={MEAN - 3 * SD} stroke="rgb(var(--qlyno-alert-500))" strokeDasharray="2 2" label={{ value: "-3SD", fontSize: 10, fill: "rgb(var(--qlyno-alert-500))" }} />
+              <Line type="monotone" dataKey="value" stroke="rgb(var(--qlyno-brand-500))" strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>

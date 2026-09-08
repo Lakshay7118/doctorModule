@@ -2,9 +2,12 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BadgeCheck, Bed, Building2, CreditCard, Eye, EyeOff, LogIn, Mail, ShieldCheck, Stethoscope } from "lucide-react";
+import { useDemo } from "@/state/demo-context";
+import { DEMO_ACCOUNTS } from "@/data/mock/laboratory-sessions";
+import { loginHms } from "@/hospital-admin/lib/hms-api";
+import { BadgeCheck, Bed, Building2, CreditCard, Eye, EyeOff, FlaskConical, LogIn, Mail, ShieldCheck, Stethoscope } from "lucide-react";
 
-type LoginRole = "hospital_admin" | "doctor" | "receptionist" | "nurse" | "billing";
+type LoginRole = "hospital_admin" | "doctor" | "receptionist" | "nurse" | "billing" | "laboratory";
 
 const roleOptions: Array<{
   id: LoginRole;
@@ -18,7 +21,7 @@ const roleOptions: Array<{
     id: "hospital_admin",
     title: "Hospital Admin",
     description: "Hospital command center, departments, wards, assets, reports and staff controls.",
-    email: "admin@qlyno.health",
+    email: "admin@sunrise.example",
     target: "/hospital-admin/dashboard",
     icon: ShieldCheck,
   },
@@ -26,7 +29,7 @@ const roleOptions: Array<{
     id: "doctor",
     title: "Doctor",
     description: "Doctor dashboard, schedule, appointments, consultation, prescriptions and records.",
-    email: "doctor@qlyno.health",
+    email: "doctor@hospital.example",
     target: "/doctor/dashboard",
     icon: Stethoscope,
   },
@@ -34,7 +37,7 @@ const roleOptions: Array<{
     id: "receptionist",
     title: "Receptionist",
     description: "Front desk dashboard, registration, appointments, check-in, billing coordination.",
-    email: "reception@qlyno.health",
+    email: "reception@hospital.example",
     target: "/receptionist/dashboard",
     icon: BadgeCheck,
   },
@@ -42,7 +45,7 @@ const roleOptions: Array<{
     id: "nurse",
     title: "Nurse",
     description: "Bedside patient workspace, assigned patients, station activity and shift roster.",
-    email: "nurse@qlyno.health",
+    email: "nurse@hospital.example",
     target: "/hospital-admin/nurse",
     icon: Bed,
   },
@@ -50,19 +53,18 @@ const roleOptions: Array<{
     id: "billing",
     title: "Billing",
     description: "Billing staff portal for invoices, payments, refunds, insurance and reconciliation.",
-    email: "billing@qlyno.health",
+    email: "billing@hospital.example",
     target: "/billing-staff/dashboard",
     icon: CreditCard,
   },
-  // Laboratory login is hidden for now. Re-enable this card when the module should appear on the login page.
-  // {
-  //   id: "laboratory",
-  //   title: "Laboratory",
-  //   description: "Laboratory dashboard, orders, accessioning, workbench, results, quality and inventory.",
-  //   email: "lab@qlyno.health",
-  //   target: "/dashboard",
-  //   icon: FlaskConical,
-  // },
+  {
+    id: "laboratory",
+    title: "Laboratory",
+    description: "Laboratory dashboard, orders, accessioning, workbench, results, quality and inventory.",
+    email: "lab@qlyno.health",
+    target: "/dashboard",
+    icon: FlaskConical,
+  },
 ];
 
 function persistRole(role: LoginRole) {
@@ -72,6 +74,7 @@ function persistRole(role: LoginRole) {
     window.localStorage.setItem(
       "qlyno.nursing-operations.v1",
       JSON.stringify({
+        loginRole: "admin",
         currentRole: "admin",
         currentUserId: "usr-admin-1",
         currentUserName: "Hospital Admin",
@@ -84,6 +87,7 @@ function persistRole(role: LoginRole) {
     window.localStorage.setItem(
       "qlyno.nursing-operations.v1",
       JSON.stringify({
+        loginRole: "nurse",
         currentRole: "nurse",
         currentUserId: "nurse-3",
         currentUserName: "Nurse Rahul Shinde",
@@ -92,16 +96,52 @@ function persistRole(role: LoginRole) {
   }
 }
 
+function defaultPasswordForRole(role: LoginRole) {
+  return role === "laboratory" ? "demo@qlyno2026" : "QlynoDemo!2026";
+}
+
 export default function SignInPage() {
   const router = useRouter();
+  const { login } = useDemo();
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const [selectedRole, setSelectedRole] = useState<LoginRole>("hospital_admin");
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [password, setPassword] = useState("demo@qlyno2026");
+  const [password, setPassword] = useState(defaultPasswordForRole("hospital_admin"));
   const activeRole = roleOptions.find((role) => role.id === selectedRole) ?? roleOptions[0];
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!password.trim()) return;
+    if (!password.trim() || isSigningIn) return;
+    setLoginError("");
+    setIsSigningIn(true);
+    if (activeRole.id === "laboratory") {
+      if (password !== "demo@qlyno2026") {
+        setLoginError("Use the demo password: demo@qlyno2026");
+        setIsSigningIn(false);
+        return;
+      }
+      const account = DEMO_ACCOUNTS.find((item) => item.session.role === "lab_director" && item.session.laboratoryProfile === "HOSPITAL_INTEGRATED");
+      try {
+        if (!account || !(await login(account.credentials, true))) {
+          setLoginError("Unable to sign in to the laboratory demo. Please try again.");
+          return;
+        }
+      } catch {
+        setLoginError("Unable to save your laboratory session. Please try again.");
+        return;
+      } finally {
+        setIsSigningIn(false);
+      }
+    } else {
+      try {
+        await loginHms({ identifier: activeRole.email, password, tenantSlug: "sunrise-hospital", remember: true });
+      } catch (error) {
+        setLoginError(error instanceof Error ? error.message : "Unable to sign in to the backend.");
+        setIsSigningIn(false);
+        return;
+      }
+    }
     persistRole(activeRole.id);
     router.push(activeRole.target);
   }
@@ -124,7 +164,7 @@ export default function SignInPage() {
             <p className="text-sm font-semibold uppercase tracking-[0.08em] text-brand-100">One login</p>
             <h2 className="mt-3 font-display text-4xl leading-tight">All operational modules in one workspace.</h2>
             <p className="mt-4 max-w-md text-sm leading-6 text-brand-100">
-              Select the role, sign in once, and continue to the correct dashboard for hospital admin, doctor, receptionist, nurse or billing staff.
+              Select the role, sign in once, and continue to the correct dashboard for hospital admin, doctor, receptionist, nurse, billing or laboratory staff.
             </p>
           </div>
 
@@ -148,7 +188,8 @@ export default function SignInPage() {
                 <button
                   key={role.id}
                   type="button"
-                  onClick={() => setSelectedRole(role.id)}
+                  disabled={isSigningIn}
+                  onClick={() => { setSelectedRole(role.id); setPassword(defaultPasswordForRole(role.id)); setLoginError(""); }}
                   className={`rounded-md border p-3 text-left transition-colors ${
                     selected ? "border-brand-200 bg-brand-50 text-brand-800" : "border-line bg-paper/70 text-ink-soft hover:bg-brand-50"
                   }`}
@@ -192,8 +233,9 @@ export default function SignInPage() {
               </span>
             </label>
 
-            <button type="submit" className="btn-primary w-full justify-center">
-              <LogIn size={16} /> Sign In as {activeRole.title}
+            {loginError && <p role="alert" className="text-sm text-red-600">{loginError}</p>}
+            <button type="submit" disabled={isSigningIn} className="btn-primary w-full justify-center">
+              <LogIn size={16} /> {isSigningIn ? "Signing in..." : `Sign In as ${activeRole.title}`}
             </button>
           </form>
         </section>

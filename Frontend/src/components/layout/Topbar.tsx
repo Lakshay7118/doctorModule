@@ -38,7 +38,7 @@ export function Topbar() {
       </Dropdown>
 
       <button type="button" className="flex items-center gap-2 rounded-lg pl-1 text-left hover:opacity-80">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E1ECE8] text-xs font-semibold text-brand-blue">{currentUser.initials}</span>
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-blue">{currentUser.initials}</span>
         <span className="hidden leading-tight md:block"><span className="block text-xs font-semibold text-text-main">{currentUser.name}</span><span className="block text-[10px] text-text-muted">{role.label}</span></span>
         <ChevronDown className="hidden h-3.5 w-3.5 text-text-muted md:block" />
       </button>

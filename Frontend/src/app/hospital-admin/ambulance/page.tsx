@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import Link from "next/link";
 import {
@@ -64,7 +64,7 @@ import {
   SelectValue,
 } from "@/hospital-admin/components/ui/select";
 import { Textarea } from "@/hospital-admin/components/ui/textarea";
-import { RootState } from "@/hospital-admin/store/store";
+import { AppDispatch, RootState } from "@/hospital-admin/store/store";
 import {
   Ambulance,
   AmbulanceStatus,
@@ -72,7 +72,9 @@ import {
   CrewMember,
   assignDriverCrew,
   freeAmbulance,
+  hydrateAmbulanceState,
   registerAmbulance,
+  upsertAmbulance,
   updateAmbulanceRegistry,
   updateAmbulanceStatus,
 } from "@/hospital-admin/store/slices/ambulanceSlice";
@@ -80,6 +82,13 @@ import { updateCaseStatus } from "@/hospital-admin/store/slices/emergencySlice";
 import { DispatchCreationModal } from "@/hospital-admin/components/ambulance/DispatchCreationModal";
 import { useToast } from "@/hospital-admin/hooks/use-toast";
 import { STATUS_CONFIG } from "@/hospital-admin/lib/ambulance-status";
+import {
+  createBackendAmbulance,
+  getBackendAmbulanceState,
+  getHmsAuthSession,
+  updateBackendAmbulance,
+  updateBackendAmbulanceStatus,
+} from "@/hospital-admin/lib/hms-api";
 
 const DELEGATION_STRING = "Performed by Hospital Admin • acting within Ambulance Dispatch workflow";
 
@@ -106,9 +115,11 @@ const STANDARD_EQUIPMENT = [
 ];
 
 export default function AmbulancePage() {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const { toast } = useToast();
   const ambulances = useSelector((state: RootState) => state.ambulance.fleet);
+  const [isBackendConnected, setIsBackendConnected] = useState(false);
+  const [isSyncingBackend, setIsSyncingBackend] = useState(false);
 
   const [activeTab, setActiveTab] = useState<"registry" | "kanban">("registry");
   const [search, setSearch] = useState("");
@@ -143,6 +154,23 @@ export default function AmbulancePage() {
   const [driverShift, setDriverShift] = useState("Day Shift (08:00 - 16:00)");
   const [crewList, setCrewList] = useState<CrewMember[]>([]);
 
+  const refreshBackendState = useCallback(async () => {
+    const state = await getBackendAmbulanceState();
+    dispatch(hydrateAmbulanceState({ fleet: state.fleet, dispatchHistory: state.dispatchHistory }));
+    setIsBackendConnected(true);
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (!getHmsAuthSession()) return;
+    setIsSyncingBackend(true);
+    refreshBackendState()
+      .catch((error) => {
+        setIsBackendConnected(false);
+        console.warn("Failed to load backend ambulance state:", error);
+      })
+      .finally(() => setIsSyncingBackend(false));
+  }, [refreshBackendState]);
+
   // Derived counts for fleet overview
   const availableCount = ambulances.filter((a) => a.status === "Available").length;
   const activeDispatchesCount = ambulances.filter((a) =>
@@ -168,11 +196,32 @@ export default function AmbulancePage() {
   }, [ambulances, search, filterType, filterStatus, filterLocation]);
 
   // Handlers for Status Transitions (Rules CAN #6-12)
-  const handleStatusChange = (amb: Ambulance, newStatus: AmbulanceStatus) => {
-    if (newStatus === "Available") {
-      dispatch(freeAmbulance(amb.id));
+  const handleStatusChange = async (amb: Ambulance, newStatus: AmbulanceStatus) => {
+    if (isBackendConnected) {
+      try {
+        setIsSyncingBackend(true);
+        await updateBackendAmbulanceStatus(
+          amb.id,
+          newStatus,
+          newStatus === "Maintenance/Offline" ? amb.maintenanceNotes || "Marked offline from hospital admin" : undefined
+        );
+        await refreshBackendState();
+      } catch (error) {
+        toast({
+          title: "Backend Update Failed",
+          description: error instanceof Error ? error.message : "Ambulance status could not be saved.",
+          variant: "destructive",
+        });
+        return;
+      } finally {
+        setIsSyncingBackend(false);
+      }
     } else {
-      dispatch(updateAmbulanceStatus({ id: amb.id, status: newStatus }));
+      if (newStatus === "Available") {
+        dispatch(freeAmbulance(amb.id));
+      } else {
+        dispatch(updateAmbulanceStatus({ id: amb.id, status: newStatus }));
+      }
     }
 
     // Auto-sync status to Emergency Case if linked (Module 08 Sync)
@@ -222,35 +271,86 @@ export default function AmbulancePage() {
   };
 
   // Handle Save Vehicle (Register or Edit)
-  const handleSaveVehicle = (e: React.FormEvent) => {
+  const handleSaveVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!vehicleNo.trim()) return;
 
     if (editingAmbulance) {
-      dispatch(
-        updateAmbulanceRegistry({
-          id: editingAmbulance.id,
-          vehicleNo: vehicleNo.trim(),
-          type: vehicleType,
-          equipment: selectedEquipment,
-          baseLocation: baseLocation,
-          maintenanceNotes: maintenanceNotes.trim() || undefined,
-        })
-      );
+      const nextAmbulance: Ambulance = {
+        ...editingAmbulance,
+        vehicleNo: vehicleNo.trim(),
+        type: vehicleType,
+        equipment: selectedEquipment,
+        baseLocation: baseLocation,
+        maintenanceNotes: maintenanceNotes.trim() || undefined,
+      };
+
+      if (isBackendConnected) {
+        try {
+          setIsSyncingBackend(true);
+          dispatch(upsertAmbulance(await updateBackendAmbulance(nextAmbulance)));
+        } catch (error) {
+          toast({
+            title: "Backend Save Failed",
+            description: error instanceof Error ? error.message : "Vehicle changes could not be saved.",
+            variant: "destructive",
+          });
+          return;
+        } finally {
+          setIsSyncingBackend(false);
+        }
+      } else {
+        dispatch(
+          updateAmbulanceRegistry({
+            id: editingAmbulance.id,
+            vehicleNo: vehicleNo.trim(),
+            type: vehicleType,
+            equipment: selectedEquipment,
+            baseLocation: baseLocation,
+            maintenanceNotes: maintenanceNotes.trim() || undefined,
+          })
+        );
+      }
       toast({
         title: "Ambulance Registry Updated",
         description: `Configuration updated for ${vehicleNo}. • ${DELEGATION_STRING}`,
       });
     } else {
-      dispatch(
-        registerAmbulance({
-          vehicleNo: vehicleNo.trim(),
-          type: vehicleType,
-          equipment: selectedEquipment,
-          baseLocation: baseLocation,
-          maintenanceNotes: maintenanceNotes.trim() || undefined,
-        })
-      );
+      if (isBackendConnected) {
+        try {
+          setIsSyncingBackend(true);
+          dispatch(
+            upsertAmbulance(
+              await createBackendAmbulance({
+                vehicleNo: vehicleNo.trim(),
+                type: vehicleType,
+                equipment: selectedEquipment,
+                baseLocation: baseLocation,
+                maintenanceNotes: maintenanceNotes.trim() || undefined,
+              })
+            )
+          );
+        } catch (error) {
+          toast({
+            title: "Backend Save Failed",
+            description: error instanceof Error ? error.message : "Vehicle could not be registered.",
+            variant: "destructive",
+          });
+          return;
+        } finally {
+          setIsSyncingBackend(false);
+        }
+      } else {
+        dispatch(
+          registerAmbulance({
+            vehicleNo: vehicleNo.trim(),
+            type: vehicleType,
+            equipment: selectedEquipment,
+            baseLocation: baseLocation,
+            maintenanceNotes: maintenanceNotes.trim() || undefined,
+          })
+        );
+      }
       toast({
         title: "New Ambulance Registered",
         description: `Vehicle ${vehicleNo} added to hospital fleet. • ${DELEGATION_STRING}`,
@@ -271,24 +371,46 @@ export default function AmbulancePage() {
   };
 
   // Handle Save Crew
-  const handleSaveCrew = (e: React.FormEvent) => {
+  const handleSaveCrew = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!crewModalAmb) return;
 
     const validCrew = crewList.filter((c) => c.name.trim().length > 0);
+    const nextAmbulance: Ambulance = {
+      ...crewModalAmb,
+      driver: {
+        name: driverName.trim(),
+        phone: driverPhone.trim(),
+        licenseNo: driverLicense.trim(),
+        shift: driverShift,
+      },
+      driverName: driverName.trim(),
+      crew: validCrew,
+    };
 
-    dispatch(
-      assignDriverCrew({
-        ambulanceId: crewModalAmb.id,
-        driver: {
-          name: driverName.trim(),
-          phone: driverPhone.trim(),
-          licenseNo: driverLicense.trim(),
-          shift: driverShift,
-        },
-        crew: validCrew,
-      })
-    );
+    if (isBackendConnected) {
+      try {
+        setIsSyncingBackend(true);
+        dispatch(upsertAmbulance(await updateBackendAmbulance(nextAmbulance)));
+      } catch (error) {
+        toast({
+          title: "Backend Save Failed",
+          description: error instanceof Error ? error.message : "Driver and crew changes could not be saved.",
+          variant: "destructive",
+        });
+        return;
+      } finally {
+        setIsSyncingBackend(false);
+      }
+    } else {
+      dispatch(
+        assignDriverCrew({
+          ambulanceId: crewModalAmb.id,
+          driver: nextAmbulance.driver!,
+          crew: validCrew,
+        })
+      );
+    }
 
     toast({
       title: "Driver & Crew Assignment Saved",
@@ -307,6 +429,28 @@ export default function AmbulancePage() {
         crumbs={[{ label: "Hospital Operations" }, { label: "Ambulance Management" }]}
         actions={
           <div className="flex flex-wrap items-center gap-2.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-9"
+              disabled={isSyncingBackend || !getHmsAuthSession()}
+              onClick={() => {
+                setIsSyncingBackend(true);
+                refreshBackendState()
+                  .then(() => toast({ title: "Backend Fleet Synced", description: "Latest ambulance registry and dispatch history loaded." }))
+                  .catch((error) =>
+                    toast({
+                      title: "Backend Sync Failed",
+                      description: error instanceof Error ? error.message : "Could not load ambulance records.",
+                      variant: "destructive",
+                    })
+                  )
+                  .finally(() => setIsSyncingBackend(false));
+              }}
+            >
+              <RefreshCw className={`h-4 w-4 text-muted-foreground ${isSyncingBackend ? "animate-spin" : ""}`} />
+              <span>{isBackendConnected ? "Backend Synced" : "Sync Backend"}</span>
+            </Button>
             <Link href="/hospital-admin/ambulance/live-tracking">
               <Button variant="outline" size="sm" className="gap-1.5 h-9">
                 <MapPin className="h-4 w-4 text-primary" />

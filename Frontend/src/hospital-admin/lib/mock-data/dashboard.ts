@@ -18,11 +18,11 @@ export const revenueTrend = [
 ];
 
 export const departmentLoad = [
-  { name: "Cardiology", value: 24, color: "#0f6e63" },
-  { name: "Orthopedics", value: 19, color: "#14b8a6" },
-  { name: "Pediatrics", value: 16, color: "#38bdf8" },
-  { name: "Gynecology", value: 15, color: "#a78bfa" },
-  { name: "General Medicine", value: 26, color: "#f59e0b" },
+  { name: "Cardiology", value: 24, color: "rgb(var(--qlyno-brand-700))" },
+  { name: "Orthopedics", value: 19, color: "rgb(var(--qlyno-brand-500))" },
+  { name: "Pediatrics", value: 16, color: "rgb(var(--qlyno-brand-300))" },
+  { name: "Gynecology", value: 15, color: "rgb(var(--qlyno-brand-200))" },
+  { name: "General Medicine", value: 26, color: "rgb(var(--qlyno-warning-400))" },
 ];
 
 export const patientSatisfaction = [

@@ -273,6 +273,10 @@ export const hospitalProfileSlice = createSlice({
   name: "hospitalProfile",
   initialState,
   reducers: {
+    hydrateHospitalProfileState: (state, action: PayloadAction<Partial<HospitalProfileState>>) => {
+      Object.assign(state, action.payload);
+    },
+
     updateBasicInfo: (state, action: PayloadAction<Partial<BasicInformationData>>) => {
       const updates = action.payload;
       let hasMaterialChange = false;
@@ -464,6 +468,7 @@ export const hospitalProfileSlice = createSlice({
 });
 
 export const {
+  hydrateHospitalProfileState,
   updateBasicInfo,
   acknowledgeMaterialChangeReview,
   updateContactInfo,

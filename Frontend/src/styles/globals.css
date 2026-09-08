@@ -3,89 +3,7 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --qlyno-paper: 248 250 252;
-    --qlyno-surface: 255 255 255;
-    --qlyno-line: 226 232 240;
-    --qlyno-ink: 27 30 38;
-    --qlyno-ink-50: 248 250 252;
-    --qlyno-ink-100: 241 245 249;
-    --qlyno-ink-200: 226 232 240;
-    --qlyno-ink-300: 203 213 225;
-    --qlyno-ink-400: 148 163 184;
-    --qlyno-ink-500: 100 116 139;
-    --qlyno-ink-600: 71 85 105;
-    --qlyno-ink-700: 51 65 85;
-    --qlyno-ink-800: 30 41 59;
-    --qlyno-ink-900: 15 23 42;
-    --qlyno-ink-950: 2 6 23;
-    --qlyno-brand-50: 239 246 255;
-    --qlyno-brand-100: 219 234 254;
-    --qlyno-brand-200: 191 219 254;
-    --qlyno-brand-300: 147 197 253;
-    --qlyno-brand-400: 96 165 250;
-    --qlyno-brand-500: 52 104 240;
-    --qlyno-brand-600: 37 99 235;
-    --qlyno-brand-700: 29 78 216;
-    --qlyno-brand-800: 30 64 175;
-    --qlyno-brand-900: 30 58 138;
-    --qlyno-brand-950: 23 37 84;
-    --qlyno-success-50: 236 253 245;
-    --qlyno-success-100: 209 250 229;
-    --qlyno-success-400: 52 211 153;
-    --qlyno-success-500: 16 185 129;
-    --qlyno-success-600: 5 150 105;
-    --qlyno-warning-50: 255 251 235;
-    --qlyno-warning-100: 254 243 199;
-    --qlyno-warning-400: 245 158 11;
-    --qlyno-warning-500: 217 119 6;
-    --qlyno-warning-600: 180 83 9;
-    --qlyno-alert-50: 255 241 242;
-    --qlyno-alert-100: 255 228 230;
-    --qlyno-alert-400: 244 63 94;
-    --qlyno-alert-500: 225 29 72;
-    --qlyno-alert-600: 190 18 60;
-    --qlyno-info-50: 240 249 255;
-    --qlyno-info-100: 224 242 254;
-    --qlyno-info-400: 56 189 248;
-    --qlyno-info-500: 14 165 233;
-    --qlyno-info-600: 2 132 199;
-    --background: 210 40% 98%;
-    --foreground: 226 17% 13%;
-    --card: 0 0% 100%;
-    --card-foreground: 226 17% 13%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 226 17% 13%;
-    --primary: 225 86% 57%;
-    --primary-foreground: 0 0% 100%;
-    --primary-50: 214 100% 97%;
-    --primary-100: 214 95% 93%;
-    --primary-600: 221 83% 53%;
-    --primary-700: 224 76% 48%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 214 100% 97%;
-    --accent-foreground: 224 76% 48%;
-    --destructive: 346 77% 49%;
-    --destructive-foreground: 0 0% 100%;
-    --success: 160 84% 39%;
-    --success-foreground: 0 0% 100%;
-    --warning: 32 95% 44%;
-    --warning-foreground: 0 0% 100%;
-    --info: 199 89% 48%;
-    --info-foreground: 0 0% 100%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 225 86% 57%;
-    --radius: 0.75rem;
-    --sidebar: 0 0% 100%;
-    --sidebar-foreground: 226 17% 13%;
-    --sidebar-muted: 215 16% 47%;
-    --sidebar-border: 214 32% 91%;
-    --sidebar-active: 225 86% 57%;
-  }
+  /* Theme tokens are supplied by APP_THEME on the root layout. */
 
   html {
     -webkit-text-size-adjust: 100%;
@@ -99,16 +17,15 @@
 
   body {
     @apply bg-app-bg text-text-main font-sans antialiased;
-    background-image: radial-gradient(circle at 70% 0%, rgba(221, 237, 232, 0.45), transparent 34rem);
   }
 
   :focus-visible {
-    outline: 2px solid #176b5b;
+    outline: 2px solid rgb(var(--qlyno-brand-500));
     outline-offset: 2px;
   }
 
   ::selection {
-    background: #dcede7;
+    background: rgb(var(--qlyno-brand-100));
   }
 }
 

@@ -26,9 +26,9 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "composed",
     chartKeys: [
-      { dataKey: "opdVolume", name: "OPD Volume", color: "#0d9488", type: "bar" },
-      { dataKey: "admissions", name: "IPD Admissions", color: "#0284c7", type: "bar" },
-      { dataKey: "avgWaitMinutes", name: "Avg Wait (mins)", color: "#f59e0b", type: "line" },
+      { dataKey: "opdVolume", name: "OPD Volume", color: "rgb(var(--qlyno-brand-500))", type: "bar" },
+      { dataKey: "admissions", name: "IPD Admissions", color: "rgb(var(--qlyno-brand-400))", type: "bar" },
+      { dataKey: "avgWaitMinutes", name: "Avg Wait (mins)", color: "rgb(var(--qlyno-warning-400))", type: "line" },
     ],
     chartData: [
       { period: "Mon (Aug 18)", opdVolume: 480, admissions: 22, avgWaitMinutes: 24 },
@@ -77,8 +77,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "bar",
     chartKeys: [
-      { dataKey: "occupied", name: "Occupied Beds", color: "#0d9488" },
-      { dataKey: "available", name: "Available Beds", color: "#94a3b8" },
+      { dataKey: "occupied", name: "Occupied Beds", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "available", name: "Available Beds", color: "rgb(var(--qlyno-ink-400))" },
     ],
     chartData: [
       { period: "Medical ICU", occupied: 12, available: 0 },
@@ -126,8 +126,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "bar",
     chartKeys: [
-      { dataKey: "consultations", name: "Completed Consults", color: "#0d9488" },
-      { dataKey: "cancellations", name: "Cancellations", color: "#f43f5e" },
+      { dataKey: "consultations", name: "Completed Consults", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "cancellations", name: "Cancellations", color: "rgb(var(--qlyno-alert-400))" },
     ],
     chartData: [
       { period: "Dr. Arvind Swaminathan", consultations: 340, cancellations: 8 },
@@ -174,8 +174,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "line",
     chartKeys: [
-      { dataKey: "attendanceRate", name: "Attendance %", color: "#0d9488" },
-      { dataKey: "taskCompletion", name: "Task Completion %", color: "#0284c7" },
+      { dataKey: "attendanceRate", name: "Attendance %", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "taskCompletion", name: "Task Completion %", color: "rgb(var(--qlyno-brand-400))" },
     ],
     chartData: [
       { period: "Week 1", attendanceRate: 97.2, taskCompletion: 98.1 },
@@ -218,8 +218,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "area",
     chartKeys: [
-      { dataKey: "registered", name: "Registrations", color: "#0d9488" },
-      { dataKey: "noShows", name: "No-Shows", color: "#f43f5e" },
+      { dataKey: "registered", name: "Registrations", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "noShows", name: "No-Shows", color: "rgb(var(--qlyno-alert-400))" },
     ],
     chartData: [
       { period: "08:00 - 10:00", registered: 140, noShows: 8 },
@@ -264,8 +264,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "bar",
     chartKeys: [
-      { dataKey: "electiveCases", name: "Elective Cases", color: "#0d9488" },
-      { dataKey: "emergencyCases", name: "Emergency Cases", color: "#f59e0b" },
+      { dataKey: "electiveCases", name: "Elective Cases", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "emergencyCases", name: "Emergency Cases", color: "rgb(var(--qlyno-warning-400))" },
     ],
     chartData: [
       { period: "OT 1 (Cardiac Suite)", electiveCases: 42, emergencyCases: 8 },
@@ -312,8 +312,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "line",
     chartKeys: [
-      { dataKey: "routineTatHours", name: "Routine TAT (Hours)", color: "#0d9488" },
-      { dataKey: "statTatMins", name: "STAT TAT (Minutes / 10)", color: "#f59e0b" },
+      { dataKey: "routineTatHours", name: "Routine TAT (Hours)", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "statTatMins", name: "STAT TAT (Minutes / 10)", color: "rgb(var(--qlyno-warning-400))" },
     ],
     chartData: [
       { period: "Biochemistry", routineTatHours: 1.6, statTatMins: 2.4 },
@@ -358,8 +358,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "bar",
     chartKeys: [
-      { dataKey: "dispensedCount", name: "Dispensed Orders", color: "#0d9488" },
-      { dataKey: "lowStockAlerts", name: "Low Stock Flags", color: "#f43f5e" },
+      { dataKey: "dispensedCount", name: "Dispensed Orders", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "lowStockAlerts", name: "Low Stock Flags", color: "rgb(var(--qlyno-alert-400))" },
     ],
     chartData: [
       { period: "Week 1", dispensedCount: 2150, lowStockAlerts: 4 },
@@ -402,9 +402,9 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "composed",
     chartKeys: [
-      { dataKey: "grossRevenue", name: "Gross Revenue (₹L)", color: "#0d9488", type: "bar" },
-      { dataKey: "collections", name: "Realized Collections (₹L)", color: "#0284c7", type: "bar" },
-      { dataKey: "tpaSettled", name: "TPA Settled (₹L)", color: "#f59e0b", type: "line" },
+      { dataKey: "grossRevenue", name: "Gross Revenue (₹L)", color: "rgb(var(--qlyno-brand-500))", type: "bar" },
+      { dataKey: "collections", name: "Realized Collections (₹L)", color: "rgb(var(--qlyno-brand-400))", type: "bar" },
+      { dataKey: "tpaSettled", name: "TPA Settled (₹L)", color: "rgb(var(--qlyno-warning-400))", type: "line" },
     ],
     chartData: [
       { period: "OPD Clinics", grossRevenue: 34.5, collections: 33.8, tpaSettled: 0.0 },
@@ -449,8 +449,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "bar",
     chartKeys: [
-      { dataKey: "onTimeOrders", name: "On-Time Deliveries", color: "#0d9488" },
-      { dataKey: "delayedOrders", name: "Delayed Shipments", color: "#f43f5e" },
+      { dataKey: "onTimeOrders", name: "On-Time Deliveries", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "delayedOrders", name: "Delayed Shipments", color: "rgb(var(--qlyno-alert-400))" },
     ],
     chartData: [
       { period: "Cipla Healthcare", onTimeOrders: 14, delayedOrders: 0 },
@@ -495,8 +495,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "area",
     chartKeys: [
-      { dataKey: "sosCount", name: "SOS Alerts", color: "#f43f5e" },
-      { dataKey: "ambulanceTrips", name: "Ambulance Dispatches", color: "#0284c7" },
+      { dataKey: "sosCount", name: "SOS Alerts", color: "rgb(var(--qlyno-alert-400))" },
+      { dataKey: "ambulanceTrips", name: "Ambulance Dispatches", color: "rgb(var(--qlyno-brand-400))" },
     ],
     chartData: [
       { period: "Week 1", sosCount: 6, ambulanceTrips: 12 },
@@ -539,8 +539,8 @@ export const mockHospitalReports: HospitalReportDefinition[] = [
     ],
     chartType: "bar",
     chartKeys: [
-      { dataKey: "authSuccess", name: "Authenticated Logins (x100)", color: "#0d9488" },
-      { dataKey: "authFailed", name: "Security Flags", color: "#f43f5e" },
+      { dataKey: "authSuccess", name: "Authenticated Logins (x100)", color: "rgb(var(--qlyno-brand-500))" },
+      { dataKey: "authFailed", name: "Security Flags", color: "rgb(var(--qlyno-alert-400))" },
     ],
     chartData: [
       { period: "Mon (Aug 18)", authSuccess: 48, authFailed: 2 },

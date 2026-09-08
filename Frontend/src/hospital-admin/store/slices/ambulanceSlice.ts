@@ -282,6 +282,35 @@ export const ambulanceSlice = createSlice({
   name: 'ambulance',
   initialState,
   reducers: {
+    hydrateAmbulanceState: (
+      state,
+      action: PayloadAction<{
+        fleet: Ambulance[];
+        dispatchHistory: DispatchRecord[];
+      }>
+    ) => {
+      state.fleet = action.payload.fleet;
+      state.dispatchHistory = action.payload.dispatchHistory;
+    },
+
+    upsertAmbulance: (state, action: PayloadAction<Ambulance>) => {
+      const idx = state.fleet.findIndex((a) => a.id === action.payload.id);
+      if (idx >= 0) {
+        state.fleet[idx] = action.payload;
+      } else {
+        state.fleet.unshift(action.payload);
+      }
+    },
+
+    upsertDispatchRecord: (state, action: PayloadAction<DispatchRecord>) => {
+      const idx = state.dispatchHistory.findIndex((d) => d.id === action.payload.id);
+      if (idx >= 0) {
+        state.dispatchHistory[idx] = action.payload;
+      } else {
+        state.dispatchHistory.unshift(action.payload);
+      }
+    },
+
     registerAmbulance: (
       state,
       action: PayloadAction<{
@@ -552,6 +581,9 @@ export const ambulanceSlice = createSlice({
 });
 
 export const {
+  hydrateAmbulanceState,
+  upsertAmbulance,
+  upsertDispatchRecord,
   registerAmbulance,
   updateAmbulanceRegistry,
   assignDriverCrew,

@@ -151,7 +151,7 @@ export interface SurgicalCase {
   isEmergencyOverride?: boolean;
 }
 
-interface SurgicalState {
+export interface SurgicalState {
   cases: SurgicalCase[];
   otRooms: OTRoom[];
   surgeons: Surgeon[];
@@ -429,6 +429,15 @@ const surgicalSlice = createSlice({
   name: 'surgical',
   initialState,
   reducers: {
+    hydrateSurgicalState: (state, action: PayloadAction<Partial<SurgicalState>>) => {
+      if (action.payload.cases) state.cases = action.payload.cases;
+      if (action.payload.otRooms) state.otRooms = action.payload.otRooms;
+      if (action.payload.surgeons) state.surgeons = action.payload.surgeons;
+      if (action.payload.surgeonRequests) state.surgeonRequests = action.payload.surgeonRequests;
+      if (action.payload.teamTemplates) state.teamTemplates = action.payload.teamTemplates;
+      if (action.payload.history) state.history = action.payload.history;
+    },
+
     // Case creation
     createCase: (state, action: PayloadAction<Partial<SurgicalCase>>) => {
       const newCase: SurgicalCase = {
@@ -828,6 +837,7 @@ const surgicalSlice = createSlice({
 });
 
 export const {
+  hydrateSurgicalState,
   createCase,
   createEmergencySurgery,
   updateChecklistItem,

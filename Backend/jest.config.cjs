@@ -4,5 +4,6 @@ module.exports = {
   roots: ["<rootDir>/tests"],
   setupFiles: ["<rootDir>/tests/setup-env.ts"],
   clearMocks: true,
+  testPathIgnorePatterns: ["/node_modules/", "/tests/integration/"],
   collectCoverageFrom: ["src/**/*.ts", "!src/server.ts", "!src/generated/**"]
 };

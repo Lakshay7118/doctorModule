@@ -8,6 +8,7 @@ const nextDir = join(projectRoot, ".next-dev");
 const legacyLockFile = join(projectRoot, ".next-dev.lock");
 const lockFile = join(projectRoot, ".next-dev-server.lock");
 const port = Number(process.env.PORT ?? 3000);
+const hostname = process.env.HOSTNAME ?? process.env.HOST ?? "0.0.0.0";
 const reuseBuildArtifacts = process.argv.includes("--reuse");
 
 function isProcessRunning(pid) {
@@ -57,7 +58,7 @@ async function ensurePortAvailable() {
     server.once("listening", () => {
       server.close(resolve);
     });
-    server.listen(port, "127.0.0.1");
+    server.listen(port, hostname);
   }).catch(() => {
     console.error(`Port ${port} is already in use.`);
     console.error("Stop the existing frontend dev server first, then run npm run dev again.");
@@ -76,7 +77,7 @@ if (!reuseBuildArtifacts) {
 writeFileSync(lockFile, String(process.pid));
 
 const nextCli = join(projectRoot, "node_modules", "next", "dist", "bin", "next");
-const child = spawn(process.execPath, [nextCli, "dev", "--port", String(port)], {
+const child = spawn(process.execPath, [nextCli, "dev", "--hostname", hostname, "--port", String(port)], {
   cwd: projectRoot,
   stdio: "inherit",
   env: {

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { getThemeStyle } from "@/config/theme";
 import "@/styles/globals.css";
 import { DemoProvider } from "@/state/demo-context";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -19,7 +20,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" style={getThemeStyle()}>
       <body className="font-sans">
         <DemoProvider>
           <HospitalWorkflowProvider>

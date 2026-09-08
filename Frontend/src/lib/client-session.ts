@@ -3,6 +3,8 @@
 const SESSION_KEYS = [
   "qlyno.nursing-operations.v1",
   "qlyno-laboratory-session-v1",
+  "qlyno.hms.auth.v1",
+  "qlyno.hms.workplaceId",
 ];
 
 export function clearQlynoClientSession() {

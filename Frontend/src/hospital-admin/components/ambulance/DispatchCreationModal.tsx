@@ -35,10 +35,11 @@ import {
 import { Input } from "@/hospital-admin/components/ui/input";
 import { Switch } from "@/hospital-admin/components/ui/switch";
 import { Badge } from "@/hospital-admin/components/ui/badge";
-import { RootState } from "@/hospital-admin/store/store";
-import { dispatchAmbulance } from "@/hospital-admin/store/slices/ambulanceSlice";
+import { AppDispatch, RootState } from "@/hospital-admin/store/store";
+import { dispatchAmbulance, hydrateAmbulanceState } from "@/hospital-admin/store/slices/ambulanceSlice";
 import { linkAmbulanceToCase } from "@/hospital-admin/store/slices/emergencySlice";
 import { useToast } from "@/hospital-admin/hooks/use-toast";
+import { createBackendDispatch, getBackendAmbulanceState, getHmsAuthSession } from "@/hospital-admin/lib/hms-api";
 
 const DELEGATION_STRING = "Performed by Hospital Admin • acting within Ambulance Dispatch workflow";
 
@@ -56,7 +57,7 @@ interface DispatchCreationModalProps {
 }
 
 export function DispatchCreationModal({ open, onOpenChange, caseId }: DispatchCreationModalProps) {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const { toast } = useToast();
   const ambulances = useSelector((state: RootState) => state.ambulance.fleet);
   const emergencyCases = useSelector((state: RootState) => state.emergency.cases);
@@ -92,7 +93,7 @@ export function DispatchCreationModal({ open, onOpenChange, caseId }: DispatchCr
   const availableAmbulances = ambulances.filter((a) => a.status === "Available");
   const nonAvailableCount = ambulances.filter((a) => a.status !== "Available").length;
 
-  const handleDispatch = (e: React.FormEvent) => {
+  const handleDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAmbulanceId || !destination) return;
 
@@ -108,19 +109,34 @@ export function DispatchCreationModal({ open, onOpenChange, caseId }: DispatchCr
 
     const effectiveCaseId = selectedCaseId !== "standalone" ? selectedCaseId : undefined;
 
-    // 1. Dispatch in Ambulance Redux State
-    dispatch(
-      dispatchAmbulance({
-        ambulanceId: selectedAmbulanceId,
-        caseId: effectiveCaseId,
-        patientName: isPatientLinked ? patientName : undefined,
-        isPatientLinked: isPatientLinked,
-        originAddress: pickupAddress || chosenAmb.baseLocation,
-        destinationHospital: destination,
-        priority: priority,
-        notes: notes,
-      })
-    );
+    const dispatchPayload = {
+      ambulanceId: selectedAmbulanceId,
+      caseId: effectiveCaseId,
+      patientName: isPatientLinked ? patientName : undefined,
+      isPatientLinked: isPatientLinked,
+      originAddress: pickupAddress || chosenAmb.baseLocation,
+      destinationHospital: destination,
+      priority: priority,
+      notes: notes,
+    };
+
+    if (getHmsAuthSession()) {
+      try {
+        await createBackendDispatch(dispatchPayload);
+        const backendState = await getBackendAmbulanceState();
+        dispatch(hydrateAmbulanceState({ fleet: backendState.fleet, dispatchHistory: backendState.dispatchHistory }));
+      } catch (error) {
+        toast({
+          title: "Backend Dispatch Failed",
+          description: error instanceof Error ? error.message : "Ambulance dispatch could not be saved.",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else {
+      // 1. Dispatch in Ambulance Redux State
+      dispatch(dispatchAmbulance(dispatchPayload));
+    }
 
     // 2. Sync to Emergency Case if linked (Module 08 Integration)
     if (effectiveCaseId) {

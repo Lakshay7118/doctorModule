@@ -202,12 +202,12 @@ export function Topbar() {
                 <Link
                   href={
                     effectiveRole === "admin"
-                      ? "/notifications"
+                      ? "/hospital-admin/notifications"
                       : effectiveRole === "support_staff"
-                      ? "/support-staff"
+                      ? "/hospital-admin/support-staff"
                       : effectiveRole === "nurse"
-                      ? "/nurse"
-                      : "/nurse-station"
+                      ? "/hospital-admin/nurse"
+                      : "/hospital-admin/nurse-station"
                   }
                 >
                   View All Notifications

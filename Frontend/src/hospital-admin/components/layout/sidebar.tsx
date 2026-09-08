@@ -24,16 +24,71 @@ import {
 } from "@/hospital-admin/components/ui/dropdown-menu";
 import { cn } from "@/hospital-admin/lib/utils";
 
+const APP_USER_ROLES: AppUserRole[] = ["admin", "nurse_lead", "senior_nurse", "nurse", "support_staff", "doctor"];
+const NURSING_SWITCH_ROLES: AppUserRole[] = ["nurse_lead", "senior_nurse", "nurse"];
+
+const QUICK_SWITCH_ROLES = [
+  {
+    role: "admin" as const,
+    userId: "usr-admin-1",
+    userName: "Dr. Vikram Seth (Hospital Admin)",
+    targetRoute: "/hospital-admin/dashboard",
+    label: "Hospital Admin",
+    icon: ShieldCheck,
+    iconClassName: "text-teal-600",
+  },
+  {
+    role: "nurse_lead" as const,
+    userId: "nurse-1",
+    userName: "Sister Anita Joseph (Station Lead)",
+    targetRoute: "/hospital-admin/nurse-station",
+    label: "Nurse Station Lead",
+    icon: HeartPulse,
+    iconClassName: "text-rose-600",
+  },
+  {
+    role: "senior_nurse" as const,
+    userId: "nurse-2",
+    userName: "Sister Sneha Kulkarni (Senior Nurse)",
+    targetRoute: "/hospital-admin/nurse-station",
+    label: "Senior Nurse",
+    icon: UserCheck,
+    iconClassName: "text-blue-600",
+  },
+  {
+    role: "nurse" as const,
+    userId: "nurse-3",
+    userName: "Nurse Rahul Shinde",
+    targetRoute: "/hospital-admin/nurse",
+    label: "Staff Nurse (Bedside)",
+    icon: Bed,
+    iconClassName: "text-emerald-600",
+  },
+  {
+    role: "support_staff" as const,
+    userId: "sup-1",
+    userName: "Ramesh Pawar (Ward Attendant)",
+    targetRoute: "/hospital-admin/support-staff",
+    label: "Support Staff",
+    icon: Sparkles,
+    iconClassName: "text-amber-600",
+  },
+];
+
+function isAppUserRole(role: unknown): role is AppUserRole {
+  return typeof role === "string" && APP_USER_ROLES.includes(role as AppUserRole);
+}
+
 function Logo({ collapsed, role }: { collapsed: boolean; role?: any }) {
   const meta = getWorkspaceMetaForRole(role);
   const homeHref =
     role === "nurse_lead" || role === "senior_nurse"
-      ? "/nurse-station"
+      ? "/hospital-admin/nurse-station"
       : role === "nurse"
-      ? "/nurse"
+      ? "/hospital-admin/nurse"
       : role === "support_staff"
-      ? "/support-staff"
-      : "/dashboard";
+      ? "/hospital-admin/support-staff"
+      : "/hospital-admin/dashboard";
 
   return (
     <Link href={homeHref} className={cn("flex items-center gap-2.5 px-2 py-1", collapsed && "justify-center px-0")}>
@@ -74,13 +129,22 @@ export function SidebarNav({
         const saved = window.localStorage.getItem(NURSING_STORAGE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (
-            parsed &&
-            typeof parsed.currentRole === "string" &&
-            ["admin", "nurse_lead", "senior_nurse", "nurse", "support_staff", "doctor"].includes(parsed.currentRole)
-          ) {
+          if (parsed && isAppUserRole(parsed.currentRole)) {
             return parsed.currentRole as AppUserRole;
           }
+        }
+      } catch {}
+    }
+    return null;
+  });
+  const [loginScope, setLoginScope] = useState<AppUserRole | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = window.localStorage.getItem(NURSING_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && isAppUserRole(parsed.loginRole)) return parsed.loginRole;
+          if (parsed && isAppUserRole(parsed.currentRole)) return parsed.currentRole;
         }
       } catch {}
     }
@@ -94,11 +158,13 @@ export function SidebarNav({
         const saved = window.localStorage.getItem(NURSING_STORAGE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (
-            parsed &&
-            typeof parsed.currentRole === "string" &&
-            ["admin", "nurse_lead", "senior_nurse", "nurse", "support_staff", "doctor"].includes(parsed.currentRole)
-          ) {
+          if (parsed && isAppUserRole(parsed.loginRole)) {
+            setLoginScope(parsed.loginRole);
+          } else if (parsed && isAppUserRole(parsed.currentRole)) {
+            setLoginScope(parsed.currentRole);
+          }
+
+          if (parsed && isAppUserRole(parsed.currentRole)) {
             setPersistedRole(parsed.currentRole as AppUserRole);
             if (parsed.currentRole !== reduxRole) {
               dispatch(
@@ -133,6 +199,12 @@ export function SidebarNav({
 
   const navGroups = getNavigationForRole(effectiveRole);
   const meta = getWorkspaceMetaForRole(effectiveRole);
+  const availableQuickSwitchRoles =
+    loginScope && NURSING_SWITCH_ROLES.includes(loginScope)
+      ? QUICK_SWITCH_ROLES.filter((item) => NURSING_SWITCH_ROLES.includes(item.role))
+      : loginScope === "support_staff"
+      ? QUICK_SWITCH_ROLES.filter((item) => item.role === "support_staff")
+      : QUICK_SWITCH_ROLES;
 
   const handleSwitchRole = (role: AppUserRole, userId: string, userName: string, targetRoute: string) => {
     setPersistedRole(role);
@@ -142,7 +214,13 @@ export function SidebarNav({
         const existing = saved ? JSON.parse(saved) : {};
         window.localStorage.setItem(
           NURSING_STORAGE_KEY,
-          JSON.stringify({ ...existing, currentRole: role, currentUserId: userId, currentUserName: userName })
+          JSON.stringify({
+            ...existing,
+            loginRole: existing.loginRole ?? loginScope ?? role,
+            currentRole: role,
+            currentUserId: userId,
+            currentUserName: userName,
+          })
         );
       } catch (err) {
         console.error(err);
@@ -245,7 +323,7 @@ export function SidebarNav({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href={effectiveRole === "nurse" ? "/nurse" : effectiveRole === "support_staff" ? "/support-staff" : effectiveRole === "nurse_lead" || effectiveRole === "senior_nurse" ? "/nurse-station" : "/settings"} onClick={onNavigate}>
+              <Link href={effectiveRole === "nurse" ? "/hospital-admin/nurse" : effectiveRole === "support_staff" ? "/hospital-admin/support-staff" : effectiveRole === "nurse_lead" || effectiveRole === "senior_nurse" ? "/hospital-admin/nurse-station" : "/hospital-admin/settings"} onClick={onNavigate}>
                 <User className="mr-2 h-4 w-4" /> My Workspace
               </Link>
             </DropdownMenuItem>
@@ -261,36 +339,19 @@ export function SidebarNav({
             <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
               Quick Switch Role
             </DropdownMenuLabel>
-            <DropdownMenuItem
-              className={cn("text-xs cursor-pointer gap-2", effectiveRole === "admin" && "font-bold text-primary bg-primary/10")}
-              onClick={() => handleSwitchRole("admin", "usr-admin-1", "Dr. Vikram Seth (Hospital Admin)", "/dashboard")}
-            >
-              <ShieldCheck className="h-3.5 w-3.5 text-teal-600" /> Hospital Admin
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={cn("text-xs cursor-pointer gap-2", effectiveRole === "nurse_lead" && "font-bold text-primary bg-primary/10")}
-              onClick={() => handleSwitchRole("nurse_lead", "nurse-1", "Sister Anita Joseph (Station Lead)", "/nurse-station")}
-            >
-              <HeartPulse className="h-3.5 w-3.5 text-rose-600" /> Nurse Station Lead
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={cn("text-xs cursor-pointer gap-2", effectiveRole === "senior_nurse" && "font-bold text-primary bg-primary/10")}
-              onClick={() => handleSwitchRole("senior_nurse", "nurse-2", "Sister Sneha Kulkarni (Senior Nurse)", "/nurse-station")}
-            >
-              <UserCheck className="h-3.5 w-3.5 text-blue-600" /> Senior Nurse
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={cn("text-xs cursor-pointer gap-2", effectiveRole === "nurse" && "font-bold text-primary bg-primary/10")}
-              onClick={() => handleSwitchRole("nurse", "nurse-3", "Nurse Rahul Shinde", "/nurse")}
-            >
-              <Bed className="h-3.5 w-3.5 text-emerald-600" /> Staff Nurse (Bedside)
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={cn("text-xs cursor-pointer gap-2", effectiveRole === "support_staff" && "font-bold text-primary bg-primary/10")}
-              onClick={() => handleSwitchRole("support_staff", "sup-1", "Ramesh Pawar (Ward Attendant)", "/support-staff")}
-            >
-              <Sparkles className="h-3.5 w-3.5 text-amber-600" /> Support Staff
-            </DropdownMenuItem>
+            {availableQuickSwitchRoles.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <DropdownMenuItem
+                  key={item.role}
+                  className={cn("text-xs cursor-pointer gap-2", effectiveRole === item.role && "font-bold text-primary bg-primary/10")}
+                  onClick={() => handleSwitchRole(item.role, item.userId, item.userName, item.targetRoute)}
+                >
+                  <Icon className={cn("h-3.5 w-3.5", item.iconClassName)} /> {item.label}
+                </DropdownMenuItem>
+              );
+            })}
 
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>

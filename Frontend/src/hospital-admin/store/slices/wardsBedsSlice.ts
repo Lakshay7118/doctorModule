@@ -9,7 +9,7 @@ import {
   BedStatus,
 } from "@/hospital-admin/lib/types";
 
-interface WardsBedsState {
+export interface WardsBedsState {
   wards: Ward[];
   beds: Bed[];
   allocations: BedAllocation[];
@@ -642,6 +642,15 @@ const wardsBedsSlice = createSlice({
   name: "wardsBeds",
   initialState,
   reducers: {
+    hydrateWardsBedsState: (state, action: PayloadAction<Partial<WardsBedsState>>) => {
+      if (action.payload.wards) state.wards = action.payload.wards;
+      if (action.payload.beds) state.beds = action.payload.beds;
+      if (action.payload.allocations) state.allocations = action.payload.allocations;
+      if (action.payload.transferRequests) state.transferRequests = action.payload.transferRequests;
+      if (action.payload.cleaningTasks) state.cleaningTasks = action.payload.cleaningTasks;
+      if (action.payload.history) state.history = action.payload.history;
+    },
+
     // 1. WARD MANAGEMENT
     addWard: (state, action: PayloadAction<Omit<Ward, "id" | "occupiedBeds" | "availableBeds">>) => {
       const newWard: Ward = {
@@ -969,6 +978,7 @@ const wardsBedsSlice = createSlice({
 });
 
 export const {
+  hydrateWardsBedsState,
   addWard,
   updateWard,
   deactivateWard,

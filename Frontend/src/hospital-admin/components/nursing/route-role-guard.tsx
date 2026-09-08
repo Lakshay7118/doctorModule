@@ -10,55 +10,42 @@ import { AppUserRole } from "@/hospital-admin/lib/types/nursing-module";
 const STORAGE_KEY = "qlyno.nursing-operations.v1";
 
 const HOME_ROUTES: Record<AppUserRole, string> = {
-  admin: "/dashboard",
-  nurse_lead: "/nurse-station",
-  senior_nurse: "/nurse-station",
-  nurse: "/nurse",
-  support_staff: "/support-staff",
-  doctor: "/dashboard",
+  admin: "/hospital-admin/dashboard",
+  nurse_lead: "/hospital-admin/nurse-station",
+  senior_nurse: "/hospital-admin/nurse-station",
+  nurse: "/hospital-admin/nurse",
+  support_staff: "/hospital-admin/support-staff",
+  doctor: "/hospital-admin/dashboard",
 };
 
-const ADMIN_ONLY_ROUTES = [
-  "/dashboard",
-  "/command-center",
-  "/patients",
-  "/appointments",
-  "/ipd",
-  "/follow-ups",
-  "/doctors",
-  "/departments",
-  "/surgical-cases",
-  "/lab",
-  "/radiology",
-  "/pharmacy",
-  "/staff/receptionists",
-  "/nurses",
-  "/staff/billing-staff",
-  "/care-coordination",
-  "/billing",
-  "/payments",
-  "/insurance-tpa",
-  "/financial-reports",
-  "/inventory",
-  "/procurement",
-  "/assets",
-  "/ambulance",
-  "/content-resources",
-  "/reviews",
-  "/analytics",
-  "/verification",
-  "/admin-delegation",
-  "/incidents",
-  "/roles",
-  "/audit-logs",
-  "/documents",
-  "/notifications",
-  "/integrations",
-  "/settings",
-];
+const ROLE_ALLOWED_PREFIXES: Record<AppUserRole, string[]> = {
+  admin: ["/hospital-admin"],
+  nurse_lead: [
+    "/hospital-admin/nurse-station",
+    "/hospital-admin/wards-beds",
+    "/hospital-admin/roster",
+    "/hospital-admin/nurses",
+    "/hospital-admin/support-staff",
+    "/hospital-admin/reports",
+    "/hospital-admin/nursing-audit-logs",
+    "/hospital-admin/nurse-stations",
+  ],
+  senior_nurse: [
+    "/hospital-admin/nurse-station",
+    "/hospital-admin/nurse",
+    "/hospital-admin/wards-beds",
+    "/hospital-admin/roster",
+    "/hospital-admin/nursing-audit-logs",
+  ],
+  nurse: ["/hospital-admin/nurse", "/hospital-admin/roster"],
+  support_staff: ["/hospital-admin/support-staff", "/hospital-admin/roster"],
+  doctor: ["/hospital-admin/dashboard"],
+};
 
-function isAdminOnlyRoute(pathname: string) {
-  return ADMIN_ONLY_ROUTES.some(
+function canAccessRoute(pathname: string, role: AppUserRole) {
+  const allowedPrefixes = ROLE_ALLOWED_PREFIXES[role] ?? ROLE_ALLOWED_PREFIXES.admin;
+
+  return allowedPrefixes.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`)
   );
 }
@@ -111,12 +98,12 @@ export function RouteRoleGuard({
   useEffect(() => {
     if (!mounted || !pathname) return;
 
-    if (isAdminOnlyRoute(pathname) && resolvedRole !== "admin") {
+    if (!canAccessRoute(pathname, resolvedRole)) {
       router.replace(HOME_ROUTES[resolvedRole]);
     }
   }, [mounted, pathname, resolvedRole, router]);
 
-  if (mounted && isAdminOnlyRoute(pathname) && resolvedRole !== "admin") {
+  if (mounted && pathname && !canAccessRoute(pathname, resolvedRole)) {
     return null;
   }
 
