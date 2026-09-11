@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Building2,
   Calendar,
@@ -26,20 +27,46 @@ import { DataPrivacySettingsTab } from "@/hospital-admin/components/settings/Dat
 import { SubscriptionSettingsTab } from "@/hospital-admin/components/settings/SubscriptionSettingsTab";
 import { AccountSettingsTab } from "@/hospital-admin/components/settings/AccountSettingsTab";
 
-export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState("hospital");
+const tabList = [
+  { id: "hospital", label: "Hospital Settings", icon: Building2 },
+  { id: "departments", label: "Departments", icon: Layers },
+  { id: "appointments", label: "Appointment Settings", icon: Calendar },
+  { id: "billing", label: "Billing Settings", icon: CreditCard },
+  { id: "notifications", label: "Notification Settings", icon: Bell },
+  { id: "security", label: "Security", icon: Shield },
+  { id: "data-privacy", label: "Data & Privacy", icon: Database },
+  { id: "subscription", label: "Subscription", icon: Crown },
+  { id: "account", label: "Account Settings", icon: User },
+];
 
-  const tabList = [
-    { id: "hospital", label: "Hospital Settings", icon: Building2 },
-    { id: "departments", label: "Departments", icon: Layers },
-    { id: "appointments", label: "Appointment Settings", icon: Calendar },
-    { id: "billing", label: "Billing Settings", icon: CreditCard },
-    { id: "notifications", label: "Notification Settings", icon: Bell },
-    { id: "security", label: "Security", icon: Shield },
-    { id: "data-privacy", label: "Data & Privacy", icon: Database },
-    { id: "subscription", label: "Subscription", icon: Crown },
-    { id: "account", label: "Account Settings", icon: User },
-  ];
+const tabIds = tabList.map((tab) => tab.id);
+const defaultTab = "hospital";
+
+export default function SettingsPage() {
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState(defaultTab);
+
+  useEffect(() => {
+    const queryTab = searchParams.get("tab");
+    if (queryTab && tabIds.includes(queryTab)) {
+      setActiveTab(queryTab);
+      return;
+    }
+
+    setActiveTab(defaultTab);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const syncTabFromHash = () => {
+      const hashTab = window.location.hash.replace("#", "");
+      if (tabIds.includes(hashTab)) setActiveTab(hashTab);
+    };
+
+    syncTabFromHash();
+    window.addEventListener("hashchange", syncTabFromHash);
+
+    return () => window.removeEventListener("hashchange", syncTabFromHash);
+  }, []);
 
   return (
     <div className="space-y-6 pb-12 animate-fade-in">

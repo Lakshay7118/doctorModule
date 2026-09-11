@@ -77,7 +77,34 @@ export function management(router: Router) {
     if (input.locationId && !await db.workplace_locations.findFirst({ where: { id: input.locationId, workplaceId: input.workplaceId } })) throw notFound("Location");
     return db.clinic_rooms.create({ data: { ...input, id: id(), updatedAt: new Date() } });
   });
-  endpoint(router, "get", "/patients", "hms.patients.read", list.extend({ search: z.string().max(120).optional() }), async (input, { db }) => db.patients.findMany({ where: { patient_workplaces: { some: { workplaceId: input.workplaceId, status: "ACTIVE" } }, ...(input.search ? { OR: [{ fullName: { contains: input.search, mode: "insensitive" } }, { qlynoId: { contains: input.search, mode: "insensitive" } }, { phone: { contains: input.search } }] } : {}) }, take: input.take, skip: input.skip, orderBy: { createdAt: "desc" } }));
+  endpoint(router, "get", "/patients", "hms.patients.read", list.extend({ search: z.string().trim().max(120).optional() }), async (input, { db }) => {
+    const where = {
+      patient_workplaces: { some: { workplaceId: input.workplaceId, status: "ACTIVE" as const } },
+      ...(input.search ? {
+        OR: [
+          { fullName: { contains: input.search, mode: "insensitive" as const } },
+          { qlynoId: { contains: input.search, mode: "insensitive" as const } },
+          { phone: { contains: input.search } },
+          { patient_workplaces: { some: { workplaceId: input.workplaceId, localMrn: { contains: input.search, mode: "insensitive" as const } } } },
+        ],
+      } : {}),
+    };
+    const [items, total] = await Promise.all([
+      db.patients.findMany({
+        where,
+        include: {
+          patient_workplaces: { where: { workplaceId: input.workplaceId } },
+          patient_allergies: true,
+          patient_conditions: true,
+        },
+        take: input.take,
+        skip: input.skip,
+        orderBy: { createdAt: "desc" },
+      }),
+      db.patients.count({ where }),
+    ]);
+    return { items, total, take: input.take, skip: input.skip };
+  });
   endpoint(router, "get", "/patients/:id", "hms.patients.read", scope, async (input, { db, params }) => patient(db, params.id!, input.workplaceId));
   endpoint(router, "post", "/patients", "hms.patients.write", scope.extend({ qlynoId: text.optional(), fullName: text, gender: z.enum(["MALE", "FEMALE", "OTHER", "UNKNOWN"]), phone: z.string().min(5).max(30).optional(), dateOfBirth: z.string().date().optional(), email: z.string().email().optional(), bloodGroup: z.string().max(10).optional(), primaryDoctorId: uuid.optional(), localMrn: text.optional() }), async ({ workplaceId, localMrn, dateOfBirth, qlynoId, primaryDoctorId, ...input }, { db }) => {
     if (dateOfBirth && new Date(dateOfBirth) > new Date()) throw conflict("Birth date cannot be in the future");

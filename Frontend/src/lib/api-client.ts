@@ -37,6 +37,10 @@ export function isUuid(value: string | undefined): value is string {
   return Boolean(value && UUID_RE.test(value));
 }
 
+function listOf<T>(value: T[] | undefined | null): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function requireUuid(value: string, label: string) {
   if (!isUuid(value)) {
     throw new ApiSyncSkippedError(`${label} is a mock id. Backend sync needs UUID data loaded from the API.`);
@@ -191,9 +195,34 @@ export async function createBackendLaboratoryPatient(input: {
   return payload.data;
 }
 
-export async function getBackendPatients() {
-  const data = await getBackendBootstrap();
-  return data.patients;
+export async function getBackendPatients(options: { workplaceId?: string; take?: number; skip?: number; search?: string } = {}): Promise<PaginatedResult<Patient>> {
+  const bootstrap = isUuid(options.workplaceId) ? undefined : await getBackendBootstrap({ workplaceId: options.workplaceId });
+  const workplaceId = isUuid(options.workplaceId) ? options.workplaceId : bootstrap?.workplaceId;
+  const take = options.take ?? 25;
+  const skip = options.skip ?? 0;
+  if (!workplaceId) return { items: [], total: 0, take, skip };
+
+  const query = new URLSearchParams({ workplaceId, take: String(take), skip: String(skip) });
+  const search = options.search?.trim();
+  if (search) query.set("search", search);
+
+  const payload = await requestJson<{ data: PaginatedResult<BackendPatient> }>(`/api/hms/patients?${query.toString()}`);
+  const backendWorkplaces: BackendWorkplace[] = listOf(bootstrap?.workplaces).map((workplace) => ({
+    id: workplace.id,
+    tenantId: "",
+    siteId: "",
+    timeZone: "",
+    name: workplace.name,
+    type: workplace.type === "hospital" ? "HOSPITAL" : workplace.type === "online" ? "ONLINE_PRACTICE" : "CLINIC",
+    status: "ACTIVE",
+    createdAt: "",
+    updatedAt: "",
+  }));
+
+  return {
+    ...payload.data,
+    items: payload.data.items.map((patient) => toFrontendPatient(patient, backendWorkplaces)),
+  };
 }
 
 export async function createBackendLaboratoryEncounter(input: {
@@ -332,7 +361,16 @@ interface BackendPrescription {
   advice?: string | null;
   issuedAt?: string | null;
   createdAt: string;
-  medicines: Array<{
+  medicines?: Array<{
+    id: string;
+    medicineName: string;
+    strength?: string | null;
+    dose?: string | null;
+    frequency?: string | null;
+    duration?: string | null;
+    instructions?: string | null;
+  }>;
+  prescription_medications?: Array<{
     id: string;
     medicineName: string;
     strength?: string | null;
@@ -466,6 +504,13 @@ export interface BackendConversationRow extends Conversation {
   messages: BackendChatMessage[];
 }
 
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  take: number;
+  skip: number;
+}
+
 interface BackendBootstrapPayload {
   currentDoctorId?: string;
   doctors: BackendDoctor[];
@@ -541,10 +586,10 @@ function toFrontendPatientFromLaboratoryPatient(patient: BackendLaboratoryPatien
   };
 }
 
-function toFrontendPatient(patient: BackendPatient): Patient {
-  const workplaces = patient.workplaces ?? patient.patient_workplaces ?? [];
-  const allergies = patient.allergies ?? patient.patient_allergies ?? [];
-  const conditions = patient.conditions ?? patient.patient_conditions ?? [];
+function toFrontendPatient(patient: BackendPatient, backendWorkplaces: BackendWorkplace[] = []): Patient {
+  const workplaces = listOf(patient.workplaces ?? patient.patient_workplaces);
+  const allergies = listOf(patient.allergies ?? patient.patient_allergies);
+  const conditions = listOf(patient.conditions ?? patient.patient_conditions);
   const workplace = workplaces[0];
   return {
     id: patient.id,
@@ -556,7 +601,11 @@ function toFrontendPatient(patient: BackendPatient): Patient {
     avatarInitials: initials(patient.fullName),
     primaryDoctorId: patient.primaryDoctorId ?? "",
     clinicId: workplace?.workplaceId,
-    workContexts: ["clinic"],
+    workplaceIds: workplaces.map((item) => item.workplaceId),
+    workContexts: workplaces
+      .map((item) => backendWorkplaces.find((candidate) => candidate.id === item.workplaceId)?.type)
+      .filter((type, index, values) => Boolean(type) && values.indexOf(type) === index)
+      .map((type) => type === "HOSPITAL" ? "hospital" : "clinic") as WorkContext[],
     bloodGroup: patient.bloodGroup ?? "-",
     allergies: allergies.map((allergy) => ({
       substance: allergy.substance,
@@ -741,12 +790,13 @@ export async function getBackendBootstrap(options: { ensureDemo?: boolean; workp
   const ensureDemo = options.ensureDemo ? "true" : "false";
   const requestedWorkplace = isUuid(options.workplaceId) ? `&workplaceId=${options.workplaceId}` : "";
   const payload = await requestJson<{ ok: true; data: BackendBootstrapPayload }>(`/api/hms/doctor/bootstrap?ensureDemo=${ensureDemo}${requestedWorkplace}`);
+  const backendWorkplaces = listOf(payload.data.workplaces);
   const clinicWorkplace =
-    payload.data.workplaces.find((workplace) => workplace.id === options.workplaceId) ??
-    payload.data.workplaces.find((workplace) => workplace.type === "CLINIC") ??
-    payload.data.workplaces[0];
+    backendWorkplaces.find((workplace) => workplace.id === options.workplaceId) ??
+    backendWorkplaces.find((workplace) => workplace.type === "CLINIC") ??
+    backendWorkplaces[0];
 
-  const doctors: Doctor[] = payload.data.doctors.map((doctor) => ({
+  const doctors: Doctor[] = listOf(payload.data.doctors).map((doctor) => ({
     id: doctor.id,
     userAccountId: doctor.userAccountId ?? undefined,
     name: doctor.fullName,
@@ -758,23 +808,23 @@ export async function getBackendBootstrap(options: { ensureDemo?: boolean; workp
     workplaceIds: doctor.doctor_workplaces?.map((membership) => membership.workplaceId),
   }));
 
-  const locations: ClinicLocation[] = (clinicWorkplace?.locations ?? clinicWorkplace?.workplace_locations ?? []).map((location) => ({
+  const locations: ClinicLocation[] = listOf(clinicWorkplace?.locations ?? clinicWorkplace?.workplace_locations).map((location) => ({
     id: location.id,
     name: location.name,
     address: `${location.addressLine1}, ${location.city}`,
     isPrimary: location.isPrimary,
   }));
   const latestVitalsByPatient = new Map<string, Vitals>();
-  payload.data.vitals.forEach((vitals) => {
+  listOf(payload.data.vitals).forEach((vitals) => {
     if (!latestVitalsByPatient.has(vitals.patientId)) {
       latestVitalsByPatient.set(vitals.patientId, toFrontendVitals(vitals));
     }
   });
 
-  const patients: Patient[] = payload.data.patients.map((patient) => {
-    const patientWorkplaces = patient.workplaces ?? patient.patient_workplaces ?? [];
-    const patientAllergies = patient.allergies ?? patient.patient_allergies ?? [];
-    const patientConditions = patient.conditions ?? patient.patient_conditions ?? [];
+  const patients: Patient[] = listOf(payload.data.patients).map((patient) => {
+    const patientWorkplaces = listOf(patient.workplaces ?? patient.patient_workplaces);
+    const patientAllergies = listOf(patient.allergies ?? patient.patient_allergies);
+    const patientConditions = listOf(patient.conditions ?? patient.patient_conditions);
     const workplaceLink = patientWorkplaces.find((item) => item.workplaceId === clinicWorkplace?.id) ?? patientWorkplaces[0];
 
     return {
@@ -789,7 +839,7 @@ export async function getBackendBootstrap(options: { ensureDemo?: boolean; workp
       clinicId: clinicWorkplace?.id,
       workplaceIds: patientWorkplaces.map((item) => item.workplaceId),
       workContexts: patientWorkplaces
-        .map((item) => payload.data.workplaces.find((workplace) => workplace.id === item.workplaceId)?.type)
+        .map((item) => backendWorkplaces.find((workplace) => workplace.id === item.workplaceId)?.type)
         .filter((type, index, values) => Boolean(type) && values.indexOf(type) === index)
         .map((type) => type === "HOSPITAL" ? "hospital" : "clinic") as WorkContext[],
       bloodGroup: patient.bloodGroup ?? "-",
@@ -805,23 +855,24 @@ export async function getBackendBootstrap(options: { ensureDemo?: boolean; workp
     };
   });
 
-  const appointments: Appointment[] = payload.data.appointments.map(toFrontendAppointment);
-  const workplaces: Workplace[] = payload.data.workplaces.map(toFrontendWorkplace);
-  const shifts: DoctorShift[] = payload.data.shifts.map(toFrontendShift);
-  const services: BackendClinicServiceRow[] = payload.data.services.map(toFrontendService);
-  const diagnoses: DiagnosisEntry[] = payload.data.diagnoses.map(toFrontendDiagnosis);
-  const prescriptions: Prescription[] = payload.data.prescriptions.map(toFrontendPrescription);
-  const labOrders: LabOrder[] = payload.data.orders.filter((order) => order.type === "LABORATORY").map(toFrontendLabOrder);
-  const radiologyOrders: RadiologyOrder[] = payload.data.orders.filter((order) => order.type === "RADIOLOGY").map(toFrontendRadiologyOrder);
-  const followUps: FollowUp[] = payload.data.followUps.map((followUp) => {
-    const workplace = payload.data.workplaces.find((item) => item.id === followUp.workplaceId);
+  const appointments: Appointment[] = listOf(payload.data.appointments).map(toFrontendAppointment);
+  const workplaces: Workplace[] = backendWorkplaces.map(toFrontendWorkplace);
+  const shifts: DoctorShift[] = listOf(payload.data.shifts).map(toFrontendShift);
+  const services: BackendClinicServiceRow[] = listOf(payload.data.services).map(toFrontendService);
+  const diagnoses: DiagnosisEntry[] = listOf(payload.data.diagnoses).map(toFrontendDiagnosis);
+  const prescriptions: Prescription[] = listOf(payload.data.prescriptions).map(toFrontendPrescription);
+  const orders = listOf(payload.data.orders);
+  const labOrders: LabOrder[] = orders.filter((order) => order.type === "LABORATORY").map(toFrontendLabOrder);
+  const radiologyOrders: RadiologyOrder[] = orders.filter((order) => order.type === "RADIOLOGY").map(toFrontendRadiologyOrder);
+  const followUps: FollowUp[] = listOf(payload.data.followUps).map((followUp) => {
+    const workplace = backendWorkplaces.find((item) => item.id === followUp.workplaceId);
     return toFrontendFollowUp(followUp, workplace?.type === "HOSPITAL" ? "hospital" : "clinic");
   });
-  const staff: StaffMember[] = payload.data.staff.map(toFrontendStaff);
-  const alerts: ClinicalAlert[] = payload.data.notifications.map(toFrontendAlert);
-  const tasks: DoctorTaskItem[] = payload.data.tasks.map(toFrontendTask);
-  const admissions: HospitalWorkItem[] = payload.data.admissions.map(toFrontendAdmission);
-  const consultationNotes: ConsultationNote[] = payload.data.encounters.map(toFrontendConsultationNote);
+  const staff: StaffMember[] = listOf(payload.data.staff).map(toFrontendStaff);
+  const alerts: ClinicalAlert[] = listOf(payload.data.notifications).map(toFrontendAlert);
+  const tasks: DoctorTaskItem[] = listOf(payload.data.tasks).map(toFrontendTask);
+  const admissions: HospitalWorkItem[] = listOf(payload.data.admissions).map(toFrontendAdmission);
+  const consultationNotes: ConsultationNote[] = listOf(payload.data.encounters).map(toFrontendConsultationNote);
 
   return {
     currentDoctorId: payload.data.currentDoctorId,
@@ -922,12 +973,14 @@ function toFrontendDiagnosis(diagnosis: BackendDiagnosis): DiagnosisEntry {
 }
 
 function toFrontendPrescription(prescription: BackendPrescription): Prescription {
+  const medicines = prescription.medicines ?? prescription.prescription_medications ?? [];
+
   return {
     id: prescription.id,
     patientId: prescription.patientId,
     doctorId: prescription.doctorId,
     date: formatDate(prescription.issuedAt ?? prescription.createdAt),
-    medicines: prescription.medicines.map((medicine) => ({
+    medicines: medicines.map((medicine) => ({
       id: medicine.id,
       name: medicine.medicineName,
       dosage: medicine.strength ?? medicine.dose ?? "",

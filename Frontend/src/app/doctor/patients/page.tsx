@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Search, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { SectionHeading, Card, Avatar, Pill, EmptyState, Modal, Field, ListSkeleton, SectionSkeleton } from "@/components/ui";
@@ -10,6 +10,8 @@ import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import {
   createBackendPatient,
   deleteBackendPatient,
+  getBackendPatients,
+  isUuid,
   updateBackendPatient,
 } from "@/lib/api-client";
 
@@ -20,6 +22,8 @@ const tagTone: Record<string, "brand" | "clay" | "alert" | "sage"> = {
   "Shared-care": "sage",
 };
 
+const PAGE_SIZE = 10;
+
 function birthDateFromAge(age: number) {
   if (!Number.isFinite(age) || age <= 0) return undefined;
   return `${new Date().getFullYear() - Math.floor(age)}-01-01`;
@@ -27,10 +31,15 @@ function birthDateFromAge(age: number) {
 
 export default function PatientsPage() {
   const { selectedWorkplaceId, workContext } = useMode();
-  const { doctors, isLoadingWorkflow, patients } = useDoctorWorkflow();
+  const { doctors, isLoadingWorkflow, workflowError } = useDoctorWorkflow();
   const [patientRows, setPatientRows] = useState<Patient[]>([]);
   const [doctorRows, setDoctorRows] = useState<Doctor[]>([]);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const [totalPatients, setTotalPatients] = useState(0);
+  const [isLoadingPatients, setIsLoadingPatients] = useState(true);
+  const [patientLoadError, setPatientLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
@@ -46,28 +55,78 @@ export default function PatientsPage() {
   });
 
   useEffect(() => {
-    setPatientRows(patients);
     setDoctorRows(doctors);
     setForm((prev) => ({ ...prev, doctorId: prev.doctorId || doctors[0]?.id || "" }));
-    if (patients.length > 0) setSyncMessage("Loaded patient data.");
-  }, [doctors, patients]);
+  }, [doctors]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [query, selectedWorkplaceId, tagFilter]);
+
+  useEffect(() => {
+    if (isLoadingWorkflow) return;
+    if (!isUuid(selectedWorkplaceId)) {
+      setPatientRows([]);
+      setTotalPatients(0);
+      setIsLoadingPatients(false);
+      setPatientLoadError(workflowError || "Select a database-backed workplace to load patients.");
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      setIsLoadingPatients(true);
+      setPatientLoadError("");
+      getBackendPatients({
+        workplaceId: selectedWorkplaceId,
+        take: PAGE_SIZE,
+        skip: page * PAGE_SIZE,
+        search: query,
+      })
+        .then((result) => {
+          if (cancelled) return;
+          setPatientRows(result.items);
+          setTotalPatients(result.total);
+          setSyncMessage(`Loaded database patients ${result.total === 0 ? 0 : result.skip + 1}-${Math.min(result.skip + result.items.length, result.total)} of ${result.total}.`);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setPatientRows([]);
+          setTotalPatients(0);
+          setPatientLoadError(error instanceof Error ? error.message : "Patient page could not be loaded.");
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoadingPatients(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [isLoadingWorkflow, page, query, reloadKey, selectedWorkplaceId, workflowError]);
+
+  const patientInActiveWorkspace = useCallback((patient: Patient) => {
+    if (isUuid(selectedWorkplaceId) && patient.workplaceIds?.length) return patient.workplaceIds.includes(selectedWorkplaceId);
+    if (patient.workContexts?.length) return patient.workContexts.includes(workContext);
+    return true;
+  }, [selectedWorkplaceId, workContext]);
 
   const filtered = useMemo(() => {
     return patientRows.filter((p) => {
-      if (p.workContexts?.length && !p.workContexts.includes(workContext)) return false;
-      const matchesQuery =
-        !query ||
-        p.name.toLowerCase().includes(query.toLowerCase()) ||
-        p.mrn.toLowerCase().includes(query.toLowerCase());
+      if (!patientInActiveWorkspace(p)) return false;
       const matchesTag = !tagFilter || p.tags?.includes(tagFilter as any);
-      return matchesQuery && matchesTag;
+      return matchesTag;
     });
-  }, [patientRows, query, tagFilter, workContext]);
+  }, [patientInActiveWorkspace, patientRows, tagFilter]);
 
-  const contextRows = patientRows.filter((p) => !p.workContexts?.length || p.workContexts.includes(workContext));
+  const totalPages = Math.max(1, Math.ceil(totalPatients / PAGE_SIZE));
+  const pageStart = totalPatients === 0 ? 0 : page * PAGE_SIZE + 1;
+  const pageEnd = Math.min((page + 1) * PAGE_SIZE, totalPatients);
+  const contextRows = patientRows.filter(patientInActiveWorkspace);
   const allTags = Array.from(new Set(contextRows.flatMap((p) => p.tags ?? [])));
 
-  if (isLoadingWorkflow) {
+  if (isLoadingWorkflow || isLoadingPatients) {
     return (
       <div>
         <SectionSkeleton />
@@ -128,24 +187,6 @@ export default function PatientsPage() {
 
     if (editingPatientId) {
       const existing = patientRows.find((patient) => patient.id === editingPatientId);
-      const updatedPatient: Patient = {
-        ...(existing ?? {
-          id: editingPatientId,
-          mrn: "",
-          lastVisit: "Updated",
-          allergies: [],
-          tags: ["New"],
-        }),
-        name: form.name,
-        age: Number(form.age) || 0,
-        gender: form.gender,
-        phone: form.phone || "Not added",
-        avatarInitials: initials || "PT",
-        primaryDoctorId: form.doctorId,
-        bloodGroup: form.bloodGroup,
-        conditions: form.condition ? [form.condition] : [],
-      };
-
       try {
         const backendPatient = await updateBackendPatient(editingPatientId, {
           fullName: form.name,
@@ -156,6 +197,7 @@ export default function PatientsPage() {
         });
         setPatientRows((prev) => prev.map((patient) => (patient.id === editingPatientId ? { ...backendPatient, primaryDoctorId: form.doctorId, bloodGroup: form.bloodGroup, conditions: form.condition ? [form.condition] : [] } : patient)));
         setSyncMessage("Patient changes synced to backend.");
+        setReloadKey((value) => value + 1);
       } catch (error) {
         setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "patient update was not saved."}`);
       }
@@ -182,7 +224,7 @@ export default function PatientsPage() {
       tags: ["New"],
     };
     try {
-      const backendPatient = await createBackendPatient({
+      await createBackendPatient({
         qlynoId: `QLYNO-${Date.now()}`,
         fullName: form.name,
         gender: form.gender.toUpperCase() as "MALE" | "FEMALE" | "OTHER",
@@ -193,7 +235,8 @@ export default function PatientsPage() {
         workplaceId: selectedWorkplaceId,
         localMrn: nextPatient.mrn,
       });
-      setPatientRows((prev) => [{ ...backendPatient, primaryDoctorId: form.doctorId, bloodGroup: form.bloodGroup, conditions: form.condition ? [form.condition] : [] }, ...prev]);
+      setPage(0);
+      setReloadKey((value) => value + 1);
       setSyncMessage("Patient registration synced to backend.");
     } catch (error) {
       setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "patient registration was not saved."}`);
@@ -213,7 +256,8 @@ export default function PatientsPage() {
       setSyncMessage(`Backend delete failed: ${error instanceof Error ? error.message : "patient was not deleted."}`);
       return;
     }
-    setPatientRows((prev) => prev.filter((patient) => patient.id !== id));
+    if (filtered.length === 1 && page > 0) setPage((value) => Math.max(0, value - 1));
+    setReloadKey((value) => value + 1);
   }
 
   return (
@@ -351,11 +395,20 @@ export default function PatientsPage() {
           ))}
         </div>
       </div>
-      {syncMessage && <p className="mb-3 text-xs text-ink-muted">{syncMessage}</p>}
+      {workflowError || patientLoadError ? (
+        <p className="mb-3 rounded-md border border-alert-200 bg-alert-50 px-3 py-2 text-xs font-medium text-alert-600">
+          Database sync failed: {workflowError || patientLoadError}
+        </p>
+      ) : syncMessage ? (
+        <p className="mb-3 text-xs text-ink-muted">{syncMessage}</p>
+      ) : null}
 
       <Card padded={false}>
         {filtered.length === 0 ? (
-          <EmptyState title="No patients match" description="Try a different name, MRN, or clear your filters." />
+          <EmptyState
+            title={workflowError || patientLoadError ? "Database patients could not be loaded" : "No patients match"}
+            description={workflowError || patientLoadError ? "Check the backend connection, CORS settings, and doctor workplace access." : "Try a different name, MRN, or clear your filters."}
+          />
         ) : (
           <div className="divide-y divide-line">
             {filtered.map((p) => {
@@ -415,6 +468,32 @@ export default function PatientsPage() {
             })}
           </div>
         )}
+        <div className="flex flex-col gap-3 border-t border-line px-5 py-4 text-xs text-ink-muted sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Showing {pageStart}-{pageEnd} of {totalPatients} database patients
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.max(0, value - 1))}
+              disabled={page === 0}
+              className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="font-mono text-[11px] text-ink-muted">
+              Page {page + 1} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.min(totalPages - 1, value + 1))}
+              disabled={page >= totalPages - 1}
+              className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </Card>
     </div>
   );

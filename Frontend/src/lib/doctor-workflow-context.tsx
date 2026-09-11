@@ -32,6 +32,7 @@ import {
 
 interface DoctorWorkflowContextValue {
   isLoadingWorkflow: boolean;
+  workflowError?: string;
   workplaces: Workplace[];
   shifts: DoctorShift[];
   clinicQueue: ClinicQueueItem[];
@@ -181,12 +182,14 @@ export function DoctorWorkflowProvider({ children }: { children: ReactNode }) {
   const [currentDoctorName, setCurrentDoctorName] = useState("Doctor");
   const [selectedShiftId, setSelectedShiftId] = useState<string | undefined>();
   const [isLoadingWorkflow, setIsLoadingWorkflow] = useState(true);
+  const [workflowError, setWorkflowError] = useState<string | undefined>();
 
   const activeShift = shifts.find((shift) => shift.status === "active");
   const selectedShift = shifts.find((shift) => shift.id === selectedShiftId);
 
   useEffect(() => {
     if (!pathname.startsWith("/doctor")) {
+      setWorkflowError(undefined);
       setBackendDoctorId(undefined);
       setWorkplaces(doctorWorkplaces);
       setShifts(doctorShiftsSeed);
@@ -208,6 +211,7 @@ export function DoctorWorkflowProvider({ children }: { children: ReactNode }) {
     }
 
     let cancelled = false;
+    setWorkflowError(undefined);
     getBackendBootstrap()
       .then((data) => {
         if (cancelled) return;
@@ -250,8 +254,9 @@ export function DoctorWorkflowProvider({ children }: { children: ReactNode }) {
         setHospitalWorklist(data.admissions);
         setDoctorTasks(mergeDoctorTasks(data.tasks, normalizedAppointments, doctorId));
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
+          setWorkflowError(error instanceof Error ? error.message : "Doctor database sync failed.");
           setBackendDoctorId(undefined);
           setCurrentDoctorName("Doctor");
           setWorkplaces([]);
@@ -428,6 +433,7 @@ export function DoctorWorkflowProvider({ children }: { children: ReactNode }) {
 
   const value = {
     isLoadingWorkflow,
+    workflowError,
     workplaces,
     shifts,
     clinicQueue,

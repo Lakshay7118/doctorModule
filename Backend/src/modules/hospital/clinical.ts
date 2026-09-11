@@ -31,7 +31,14 @@ const consultationInput = clinicalScope.omit({ encounterId: true }).extend({
 });
 
 export function clinical(router: Router) {
-  endpoint(router, "get", "/appointments", "hms.appointments.read", list.extend({ patientId: uuid.optional(), doctorId: uuid.optional(), from: date.optional(), to: date.optional() }), async (input, { db }) => db.appointments.findMany({ where: { workplaceId: input.workplaceId, patientId: input.patientId, doctorId: input.doctorId, scheduledAt: { gte: input.from, lte: input.to } }, include: { patients: true, doctor_profiles: true }, orderBy: { scheduledAt: "asc" }, take: input.take, skip: input.skip }));
+  endpoint(router, "get", "/appointments", "hms.appointments.read", list.extend({ patientId: uuid.optional(), doctorId: uuid.optional(), from: date.optional(), to: date.optional() }), async (input, { db }) => {
+    const where = { workplaceId: input.workplaceId, patientId: input.patientId, doctorId: input.doctorId, scheduledAt: { gte: input.from, lte: input.to } };
+    const [items, total] = await Promise.all([
+      db.appointments.findMany({ where, include: { patients: true, doctor_profiles: true }, orderBy: { scheduledAt: "asc" }, take: input.take, skip: input.skip }),
+      db.appointments.count({ where }),
+    ]);
+    return { items, total, take: input.take, skip: input.skip };
+  });
   endpoint(router, "post", "/appointments", "hms.appointments.write", scope.extend({ patientId: uuid, doctorId: uuid, locationId: uuid.optional(), scheduledAt: date, durationMinutes: z.number().int().min(5).max(480).default(20), mode: z.enum(["IN_PERSON", "VIDEO", "HOME", "HOSPITAL"]).default("IN_PERSON"), reason: text.optional() }), async (input, { db }) => {
     await patient(db, input.patientId, input.workplaceId); await doctor(db, input.doctorId, input.workplaceId);
     if (input.locationId && !await db.workplace_locations.findFirst({ where: { id: input.locationId, workplaceId: input.workplaceId } })) throw notFound("Location");
@@ -135,7 +142,14 @@ export function clinical(router: Router) {
     if (complete && row.appointmentId) await db.appointments.update({ where: { id: row.appointmentId }, data: { status: "COMPLETED", completedAt: new Date(), updatedAt: new Date() } });
     return db.encounters.update({ where: { id: row.id }, data: { ...input, updatedAt: new Date(), ...(complete ? { status: "CONSULTATION_COMPLETED", completedAt: new Date() } : {}) } });
   });
-  endpoint(router, "get", "/prescriptions", "hms.clinical.read", list.extend({ patientId: uuid.optional() }), async (input, { db }) => db.prescriptions.findMany({ where: { workplaceId: input.workplaceId, patientId: input.patientId }, include: { prescription_medications: true }, take: input.take, skip: input.skip }));
+  endpoint(router, "get", "/prescriptions", "hms.clinical.read", list.extend({ patientId: uuid.optional() }), async (input, { db }) => {
+    const where = { workplaceId: input.workplaceId, patientId: input.patientId };
+    const [items, total] = await Promise.all([
+      db.prescriptions.findMany({ where, include: { prescription_medications: true }, orderBy: { createdAt: "desc" }, take: input.take, skip: input.skip }),
+      db.prescriptions.count({ where }),
+    ]);
+    return { items, total, take: input.take, skip: input.skip };
+  });
   endpoint(router, "post", "/prescriptions", "hms.clinical.write", prescriptionInput, async ({ medicines, ...input }, { db, context }) => {
     await patient(db, input.patientId, input.workplaceId); await doctor(db, input.doctorId, input.workplaceId, context);
     if (input.encounterId) { const visit = await encounter(db, input.encounterId, input.patientId, input.workplaceId); if (visit.doctorId !== input.doctorId) throw conflict("Encounter doctor does not match"); }
@@ -166,7 +180,14 @@ export function clinical(router: Router) {
     const account = await db.user_accounts.findUnique({ where: { authUserId: context.userId }, select: { id: true } });
     return db.vital_sets.create({ data: { ...input, id: id(), recordedById: account?.id, updatedAt: new Date() } });
   });
-  endpoint(router, "get", "/investigations", "hms.clinical.read", list.extend({ patientId: uuid.optional() }), async (input, { db }) => db.investigation_orders.findMany({ where: { workplaceId: input.workplaceId, patientId: input.patientId }, include: { reports: true }, take: input.take, skip: input.skip }));
+  endpoint(router, "get", "/investigations", "hms.clinical.read", list.extend({ patientId: uuid.optional() }), async (input, { db }) => {
+    const where = { workplaceId: input.workplaceId, patientId: input.patientId };
+    const [items, total] = await Promise.all([
+      db.investigation_orders.findMany({ where, include: { reports: true }, orderBy: { orderedAt: "desc" }, take: input.take, skip: input.skip }),
+      db.investigation_orders.count({ where }),
+    ]);
+    return { items, total, take: input.take, skip: input.skip };
+  });
   endpoint(router, "post", "/investigations", "hms.clinical.write", clinicalScope.extend({ title: text, type: z.enum(["LABORATORY", "RADIOLOGY", "EXTERNAL_REPORT"]), priority: z.enum(["ROUTINE", "URGENT", "CRITICAL"]).default("ROUTINE"), doctorNotes: note.optional() }), async (input, { db, context }) => {
     await patient(db, input.patientId, input.workplaceId); await doctor(db, input.doctorId, input.workplaceId, context);
     if (input.encounterId) { const visit = await encounter(db, input.encounterId, input.patientId, input.workplaceId); if (visit.doctorId !== input.doctorId) throw conflict("Encounter doctor does not match"); }
@@ -177,7 +198,14 @@ export function clinical(router: Router) {
     if (!row) throw notFound("Investigation order");
     return db.investigation_orders.update({ where: { id: row.id }, data: { status: input.status, reviewedAt: input.status === "REVIEWED" ? new Date() : row.reviewedAt, updatedAt: new Date() } });
   });
-  endpoint(router, "get", "/follow-ups", "hms.clinical.read", list, async (input, { db }) => db.follow_ups.findMany({ where: { workplaceId: input.workplaceId }, take: input.take, skip: input.skip, orderBy: { dueAt: "asc" } }));
+  endpoint(router, "get", "/follow-ups", "hms.clinical.read", list, async (input, { db }) => {
+    const where = { workplaceId: input.workplaceId };
+    const [items, total] = await Promise.all([
+      db.follow_ups.findMany({ where, take: input.take, skip: input.skip, orderBy: { dueAt: "asc" } }),
+      db.follow_ups.count({ where }),
+    ]);
+    return { items, total, take: input.take, skip: input.skip };
+  });
   endpoint(router, "post", "/follow-ups", "hms.clinical.write", clinicalScope.extend({ reason: text, dueAt: date }), async (input, { db, context }) => {
     await patient(db, input.patientId, input.workplaceId); await doctor(db, input.doctorId, input.workplaceId, context);
     if (input.encounterId) await encounter(db, input.encounterId, input.patientId, input.workplaceId);

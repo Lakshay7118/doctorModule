@@ -7,17 +7,28 @@ import clsx from "clsx";
 import { Activity, Building2, Check, ChevronsUpDown, Hospital, Stethoscope } from "lucide-react";
 import { doctorWorkspaceNav, clinicOperationsNav } from "./nav-config";
 import { useMode } from "@/lib/mode-context";
-import { currentDoctor, clinic } from "@/lib/mock-data";
 import { AvailabilityDot, Avatar } from "@/components/ui";
 import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import { workplaceToContext } from "@/lib/doctor-workflow-types";
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { selectedWorkplaceId, workContext, setSelectedWorkplaceId, setWorkContext } = useMode();
-  const { workplaces } = useDoctorWorkflow();
+  const { currentDoctorName, doctors, workplaces } = useDoctorWorkflow();
   const [contextOpen, setContextOpen] = useState(false);
+  const currentDoctor = doctors.find((doctor) => doctor.name === currentDoctorName) ?? doctors[0];
+  const displayDoctorName = currentDoctor?.name ?? currentDoctorName;
+  const displayDoctorInitials = currentDoctor?.avatarInitials ?? initials(displayDoctorName);
   const workplaceOptions = workplaces.map((workplace) => ({
     workplace,
     value: workplaceToContext(workplace.type),
@@ -159,10 +170,10 @@ export default function Sidebar() {
           href="/doctor/settings"
           className="flex items-center gap-2.5 rounded-md px-2 py-2 hover:bg-paper transition-colors"
         >
-          <Avatar initials={currentDoctor.avatarInitials} size={34} />
+          <Avatar initials={displayDoctorInitials} size={34} />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium text-ink truncate">{currentDoctor.name}</p>
-            <AvailabilityDot status={currentDoctor.availability} />
+            <p className="text-[13px] font-medium text-ink truncate">{displayDoctorName}</p>
+            <AvailabilityDot status={currentDoctor?.availability ?? "Available"} />
           </div>
         </Link>
       </div>
