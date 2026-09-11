@@ -4,50 +4,21 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Eye, FileText, FlaskConical, Plus, Printer } from "lucide-react";
 import { SectionHeading, Card, Avatar, Pill, Modal, SectionSkeleton, Skeleton } from "@/components/ui";
-import { patients as seedPatients, labOrders as seedOrders, getPatient, matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
+import { matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { LabOrder, OrderStatus, Patient } from "@/lib/types";
 import { CURRENT_DATE_ISO } from "@/lib/app-time";
-import { ApiSyncSkippedError, createBackendOrder, getBackendBootstrap, updateBackendOrderStatus } from "@/lib/api-client";
-import { mergeLocalLabOrders, saveLocalLabOrder } from "@/lib/lab-order-local-store";
+import { createBackendOrder, getBackendBootstrap, updateBackendOrderStatus } from "@/lib/api-client";
 
 const commonTests = ["HbA1c", "Complete Blood Count", "Lipid Profile", "Thyroid Panel", "Troponin-I", "Liver Function Test", "Kidney Function Test", "Urinalysis"];
 
 const columns: OrderStatus[] = ["Ordered", "Sample Collected", "In Progress", "Report Ready", "Reviewed"];
 
 function reportRows(order: LabOrder) {
-  const name = order.testName.toLowerCase();
-  if (name.includes("lipid")) {
-    return [
-      ["Total Cholesterol", "184 mg/dL", "< 200"],
-      ["LDL Cholesterol", "112 mg/dL", "< 100"],
-      ["HDL Cholesterol", "48 mg/dL", "> 40"],
-      ["Triglycerides", "138 mg/dL", "< 150"],
-    ];
-  }
-  if (name.includes("thyroid") || name.includes("tsh")) {
-    return [
-      ["TSH", "3.8 uIU/mL", "0.4 - 4.0"],
-      ["Free T4", "1.1 ng/dL", "0.8 - 1.8"],
-      ["Free T3", "3.0 pg/mL", "2.3 - 4.2"],
-    ];
-  }
-  if (name.includes("troponin")) {
-    return [
-      ["Troponin-I", "0.08 ng/mL", "< 0.04"],
-      ["CK-MB", "6.1 ng/mL", "< 5.0"],
-    ];
-  }
-  if (name.includes("hba1c")) {
-    return [
-      ["HbA1c", "7.2 %", "< 5.7"],
-      ["Estimated Avg. Glucose", "160 mg/dL", "70 - 140"],
-    ];
-  }
+  if (!order.report) return [["Result", "Report not available", "-"]];
   return [
-    ["Hemoglobin", "13.4 g/dL", "12.0 - 15.5"],
-    ["WBC Count", "7,800 /uL", "4,000 - 11,000"],
-    ["Platelets", "2.5 lakh/uL", "1.5 - 4.5"],
+    ["Summary", order.report.resultSummary ?? "No summary recorded", "-"],
+    ["Interpretation", order.report.interpretation ?? "No interpretation recorded", "-"],
   ];
 }
 
@@ -80,14 +51,15 @@ function LabOrdersBoard() {
       .then((data) => {
         if (cancelled) return;
         setPatients(data.patients);
-        setOrders(mergeLocalLabOrders(data.labOrders));
-        setBackendDoctorId(data.doctors[0]?.id ?? "");
+        setOrders(data.labOrders);
+        setBackendDoctorId(data.currentDoctorId ?? data.doctors[0]?.id ?? "");
       })
       .catch(() => {
         if (cancelled) return;
-        setPatients(seedPatients);
-        setOrders(mergeLocalLabOrders(seedOrders));
-        setBackendDoctorId("doc-1");
+        setPatients([]);
+        setOrders([]);
+        setBackendDoctorId("");
+        setSyncMessage("Unable to load laboratory orders from the backend.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingOrders(false);
@@ -142,7 +114,7 @@ function LabOrdersBoard() {
     const localOrder: LabOrder = {
       id: `lab-${Date.now()}`,
       patientId,
-      doctorId: backendDoctorId || "doc-1",
+      doctorId: backendDoctorId,
       testName,
       orderedOn: CURRENT_DATE_ISO,
       status: "Ordered",
@@ -163,9 +135,9 @@ function LabOrdersBoard() {
       localOrder.id = savedOrder.id;
       setSyncMessage("Lab order synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock lab order saved locally." : "Backend sync failed; local lab order kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "lab order was not saved."}`);
+      return;
     }
-    saveLocalLabOrder(localOrder);
     setOrders((prev) => [localOrder, ...prev]);
     setTestName("");
     setShowForm(false);
@@ -173,20 +145,17 @@ function LabOrdersBoard() {
 
   async function advance(id: string) {
     let nextStatus: OrderStatus = "Ordered";
-    setOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== id) return o;
-        const idx = columns.indexOf(o.status);
-        const next = columns[Math.min(idx + 1, columns.length - 1)];
-        nextStatus = next;
-        return { ...o, status: next };
-      })
-    );
+    const order = orders.find((item) => item.id === id);
+    if (!order) return;
+    const idx = columns.indexOf(order.status);
+    const next = columns[Math.min(idx + 1, columns.length - 1)];
+    nextStatus = next;
     try {
       await updateBackendOrderStatus(id, nextStatus);
+      setOrders((prev) => prev.map((item) => (item.id === id ? { ...item, status: nextStatus } : item)));
       setSyncMessage("Lab order status synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock lab order updated locally." : "Backend sync failed; local lab status kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "lab order status was not updated."}`);
     }
   }
 
@@ -289,7 +258,7 @@ function LabOrdersBoard() {
                 <div className="min-w-0 flex-1">
                   <h3 className="text-base font-semibold text-ink">{selectedReport.testName}</h3>
                   <p className="mt-1 text-sm text-ink-muted">
-                    {patientById.get(selectedReport.patientId)?.name ?? getPatient(selectedReport.patientId)?.name ?? "Patient"} -{" "}
+                    {patientById.get(selectedReport.patientId)?.name ?? "Patient"} -{" "}
                     {selectedReport.source}
                   </p>
                 </div>
@@ -350,7 +319,7 @@ function LabOrdersBoard() {
               {contextOrders
                 .filter((o) => o.status === col)
                 .map((o) => {
-                  const patient = patientById.get(o.patientId) ?? getPatient(o.patientId);
+                  const patient = patientById.get(o.patientId);
                   return (
                     <Card key={o.id} className="!p-3">
                       <div className="flex items-center gap-2 mb-1.5">

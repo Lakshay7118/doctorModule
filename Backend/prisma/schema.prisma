@@ -2263,6 +2263,20 @@ model tasks {
   @@index([workplaceId, status])
 }
 
+model doctor_workspace_states {
+  id          String   @id @db.Uuid
+  tenantId    String
+  workplaceId String   @db.Uuid
+  scope       String
+  entityId    String
+  value       Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, workplaceId, scope, entityId])
+  @@index([tenantId, scope, entityId])
+}
+
 model user_accounts {
   authUser User? @relation(fields: [authUserId], references: [id], onDelete: Restrict)
 

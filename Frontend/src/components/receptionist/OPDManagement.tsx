@@ -13,6 +13,7 @@ import {
   TicketCheck,
 } from "lucide-react";
 import { TimePicker } from "@/components/ui";
+import { getBackendReceptionistAppointmentSlip, type BackendReceptionistAppointmentSlip } from "@/lib/api-client";
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Mono, SectionHeader, Select, Table } from "./ui";
 import { useReceptionistData } from "./data-context";
 import type { QueueEntry } from "./mock-data";
@@ -58,8 +59,72 @@ function nextStatus(status: QueueEntry["status"]) {
   return status;
 }
 
+function escapePrintValue(value: unknown) {
+  return String(value ?? "-").replace(/[&<>\"']/g, (character) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '\"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character];
+  });
+}
+
+function consultationSlipHtml(slip: BackendReceptionistAppointmentSlip) {
+  const value = (input: unknown) => escapePrintValue(input);
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Consultation slip - ${value(slip.patient.name)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 24px; color: #17251f; background: #eef4f0; font-family: Arial, sans-serif; }
+      .slip { width: 100%; max-width: 720px; margin: 0 auto; padding: 28px; background: #fff; border: 1px solid #cbd8d0; }
+      .header { display: flex; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 2px solid #1d7456; }
+      .eyebrow { margin: 0 0 5px; color: #1d7456; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+      h1 { margin: 0; font-size: 24px; }
+      .muted { color: #64756d; font-size: 12px; }
+      .meta { text-align: right; font-size: 12px; }
+      .meta strong { display: block; margin-top: 4px; font-size: 14px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; padding: 22px 0; }
+      .field { min-width: 0; }
+      .label { margin-bottom: 4px; color: #64756d; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+      .value { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+      .reason { min-height: 58px; padding-top: 16px; border-top: 1px solid #dbe4df; }
+      .footer { display: flex; justify-content: space-between; gap: 20px; padding-top: 18px; border-top: 1px solid #dbe4df; color: #64756d; font-size: 11px; }
+      @media print { body { padding: 0; background: #fff; } .slip { max-width: none; border: 0; } }
+    </style>
+  </head>
+  <body>
+    <main class="slip">
+      <header class="header">
+        <div><p class="eyebrow">${value(slip.organizationName)}</p><h1>Consultation Slip</h1><p class="muted">Outpatient department visit</p></div>
+        <div class="meta"><span>Appointment ID</span><strong>${value(slip.id)}</strong><span>${value(slip.status)}</span></div>
+      </header>
+      <section class="grid">
+        <div class="field"><div class="label">Patient</div><div class="value">${value(slip.patient.name)}</div></div>
+        <div class="field"><div class="label">UHID</div><div class="value">${value(slip.patient.uhid)}</div></div>
+        <div class="field"><div class="label">Age / gender</div><div class="value">${value(slip.patient.age)} / ${value(slip.patient.gender)}</div></div>
+        <div class="field"><div class="label">Phone</div><div class="value">${value(slip.patient.phone)}</div></div>
+        <div class="field"><div class="label">Doctor</div><div class="value">${value(slip.doctor.name)}</div></div>
+        <div class="field"><div class="label">Department</div><div class="value">${value(slip.doctor.department)}</div></div>
+        <div class="field"><div class="label">Date</div><div class="value">${value(slip.date)}</div></div>
+        <div class="field"><div class="label">Time</div><div class="value">${value(slip.time)}</div></div>
+        <div class="field"><div class="label">Visit type</div><div class="value">${value(slip.mode.replaceAll("_", " "))}</div></div>
+        <div class="field"><div class="label">Check-in</div><div class="value">${value(slip.checkedInAt)}</div></div>
+      </section>
+      <section class="reason"><div class="label">Reason for visit</div><div class="value">${value(slip.reason)}</div></section>
+      <footer class="footer"><span>Generated ${value(new Date(slip.generatedAt).toLocaleString())}</span><span>Please carry this slip during consultation.</span></footer>
+    </main>
+  </body>
+</html>`;
+}
+
 export function OPDManagement() {
-  const { appointments, doctors, patients, queue, addAppointment, checkIn, advanceQueueStatus, pushNotification } =
+  const { appointments, doctors, patients, queue, addAppointment, checkIn, advanceQueueStatus, recordAction } =
     useReceptionistData();
   const [query, setQuery] = React.useState("");
   const [department, setDepartment] = React.useState("All");
@@ -68,6 +133,8 @@ export function OPDManagement() {
   const [appointmentsModalOpen, setAppointmentsModalOpen] = React.useState(false);
   const [checkInModalOpen, setCheckInModalOpen] = React.useState(false);
   const [issuedToken, setIssuedToken] = React.useState("");
+  const [previewSlip, setPreviewSlip] = React.useState<BackendReceptionistAppointmentSlip | null>(null);
+  const [previewLoading, setPreviewLoading] = React.useState(false);
   const today = todayIso();
   const todayLabel = formatReceptionistDate(today);
   const nextBookableTime = nextBookableReceptionistTime();
@@ -134,26 +201,114 @@ export function OPDManagement() {
   const completedCount = queue.filter((entry) => entry.status === "Completed").length;
   const isPastAppointmentSlot = isPastReceptionistAppointment(appointmentForm.date, appointmentForm.time);
 
-  function notifyAction(title: string, detail: string) {
-    pushNotification({ title, detail, channel: "System" });
-    setActionMessage(detail);
-  }
-
   function handleCall(entry: QueueEntry) {
-    notifyAction("Patient called to OPD", `${entry.token} - ${entry.patient} called for ${entry.doctor}.`);
+    recordAction({
+      action: "PATIENT_CALLED",
+      subject: "Patient called to OPD",
+      detail: `${entry.token} - ${entry.patient} called for ${entry.doctor}.`,
+      relatedType: "appointment",
+      relatedId: entry.appointmentId,
+    });
+    setActionMessage(`${entry.token} - ${entry.patient} called for ${entry.doctor}.`);
   }
 
   function handleAdvance(entry: QueueEntry) {
     const updatedStatus = nextStatus(entry.status);
     advanceQueueStatus(entry.token, updatedStatus);
-    notifyAction("OPD status updated", `${entry.token} moved to ${updatedStatus}.`);
+    recordAction({
+      action: "OPD_STATUS_UPDATED",
+      subject: "OPD status updated",
+      detail: `${entry.token} moved to ${updatedStatus}.`,
+      relatedType: "appointment",
+      relatedId: entry.appointmentId,
+    });
+    setActionMessage(`${entry.token} moved to ${updatedStatus}.`);
   }
 
-  function handleSlip(entry: QueueEntry) {
-    notifyAction("Consultation slip reprinted", `${entry.token} slip prepared for ${entry.patient}.`);
+  function openPrintWindow() {
+    const printWindow = window.open("", "_blank", "width=820,height=900");
+    if (!printWindow) {
+      setActionMessage("Printing was blocked. Allow pop-ups for this page and try again.");
+      return null;
+    }
+    printWindow.document.write("<p style=\"font-family:Arial;padding:24px\">Preparing consultation slip...</p>");
+    return printWindow;
   }
 
-  function handleBookAppointment(event: React.FormEvent) {
+  function printSlipDocument(slip: BackendReceptionistAppointmentSlip, printWindow: Window) {
+    printWindow.document.open();
+    printWindow.document.write(consultationSlipHtml(slip));
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.setTimeout(() => printWindow.print(), 150);
+  }
+
+  async function handleSlip(entry: QueueEntry) {
+    if (!entry.appointmentId) {
+      setActionMessage("This queue entry is not linked to a saved appointment.");
+      return;
+    }
+
+    const printWindow = openPrintWindow();
+    if (!printWindow) return;
+
+    try {
+      const slip = await getBackendReceptionistAppointmentSlip(entry.appointmentId, entry.workplaceId);
+      printSlipDocument(slip, printWindow);
+      recordAction({
+        action: "CONSULTATION_SLIP_PRINTED",
+        subject: "Consultation slip reprinted",
+        detail: `${entry.token} slip prepared for ${slip.patient.name}.`,
+        relatedType: "appointment",
+        relatedId: entry.appointmentId,
+      });
+      setActionMessage(`${entry.token} slip prepared for ${slip.patient.name}.`);
+    } catch (error) {
+      printWindow.close();
+      setActionMessage(error instanceof Error ? error.message : "Consultation slip could not be loaded from the backend.");
+    }
+  }
+
+  async function handlePreviewTemplate() {
+    const queueEntry = queue.find((entry) => entry.appointmentId);
+    const appointment = queueEntry
+      ? undefined
+      : appointments.find((item) => item.backendId);
+    const appointmentId = queueEntry?.appointmentId ?? appointment?.backendId;
+    const workplaceId = queueEntry?.workplaceId ?? appointment?.workplaceId;
+
+    if (!appointmentId) {
+      setActionMessage("No saved appointment is available for a consultation slip preview.");
+      return;
+    }
+
+    setPreviewLoading(true);
+    try {
+      const slip = await getBackendReceptionistAppointmentSlip(appointmentId, workplaceId);
+      setPreviewSlip(slip);
+      recordAction({
+        action: "CONSULTATION_SLIP_PRINTED",
+        subject: "Consultation slip template previewed",
+        detail: `Preview opened for ${slip.patient.name}.`,
+        relatedType: "appointment",
+        relatedId: slip.id,
+      });
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Consultation slip preview could not be loaded from the backend.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function handlePrintPreview() {
+    if (!previewSlip) return;
+    const printWindow = openPrintWindow();
+    if (!printWindow) return;
+    printSlipDocument(previewSlip, printWindow);
+    setActionMessage(`Consultation slip prepared for ${previewSlip.patient.name}.`);
+  }
+
+  async function handleBookAppointment(event: React.FormEvent) {
     event.preventDefault();
     if (isPastReceptionistAppointment(appointmentForm.date, appointmentForm.time)) {
       setActionMessage("Select a future appointment time before confirming.");
@@ -164,17 +319,21 @@ export function OPDManagement() {
     const doctor = doctors.find((item) => item.name === appointmentForm.doctor);
     if (!patient || !doctor) return;
 
-    const appointment = addAppointment({
-      patient: patient.name,
-      uhid: patient.uhid,
-      doctor: doctor.name,
-      department: doctor.department,
-      date: appointmentForm.date,
-      time: appointmentForm.time,
-      status: "Confirmed",
-    });
-    setAppointmentsModalOpen(false);
-    setActionMessage(`${appointment.id} booked for ${appointment.patient} with ${appointment.doctor}.`);
+    try {
+      const appointment = await addAppointment({
+        patient: patient.name,
+        uhid: patient.uhid,
+        doctor: doctor.name,
+        department: doctor.department,
+        date: appointmentForm.date,
+        time: appointmentForm.time,
+        status: "Confirmed",
+      });
+      setAppointmentsModalOpen(false);
+      setActionMessage(`${appointment.id} booked for ${appointment.patient} with ${appointment.doctor}.`);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Appointment could not be saved to the backend database.");
+    }
   }
 
   function handleCheckInPatient(event: React.FormEvent) {
@@ -338,6 +497,44 @@ export function OPDManagement() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(previewSlip)}
+        title="Consultation slip preview"
+        eyebrow={previewSlip?.organizationName ?? "OPD"}
+        onClose={() => setPreviewSlip(null)}
+        size="lg"
+      >
+        {previewLoading ? (
+          <p className="rp-sub">Loading the saved appointment details...</p>
+        ) : previewSlip ? (
+          <div className="rounded-md border border-line bg-paper p-5">
+            <div className="flex flex-col gap-3 border-b border-line pb-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="rp-eyebrow">{previewSlip.organizationName}</p>
+                <h2 className="rp-h2 !mb-1">Consultation Slip</h2>
+                <p className="rp-sub !mt-0">Outpatient department visit</p>
+              </div>
+              <div className="text-left sm:text-right">
+                <p className="text-xs text-muted">Appointment ID</p>
+                <Mono>{previewSlip.id}</Mono>
+                <p className="mt-1 text-xs text-muted">{previewSlip.status}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 py-5 sm:grid-cols-2">
+              <div><p className="rp-eyebrow">Patient</p><p className="font-semibold text-ink">{previewSlip.patient.name}</p><p className="rp-sub">{previewSlip.patient.uhid}</p></div>
+              <div><p className="rp-eyebrow">Doctor</p><p className="font-semibold text-ink">{previewSlip.doctor.name}</p><p className="rp-sub">{previewSlip.doctor.department}</p></div>
+              <div><p className="rp-eyebrow">Appointment</p><p className="font-semibold text-ink">{previewSlip.date} at {previewSlip.time}</p><p className="rp-sub">{previewSlip.mode.replaceAll("_", " ")}</p></div>
+              <div><p className="rp-eyebrow">Check-in</p><p className="font-semibold text-ink">{previewSlip.checkedInAt ?? "Not checked in"}</p><p className="rp-sub">{previewSlip.patient.phone}</p></div>
+            </div>
+            <div className="border-t border-line pt-4"><p className="rp-eyebrow">Reason for visit</p><p className="text-sm text-ink">{previewSlip.reason || "Not recorded"}</p></div>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Button onClick={handlePrintPreview}><Printer size={16} /> Print slip</Button>
+              <Button variant="secondary" onClick={() => setPreviewSlip(null)}>Close</Button>
+            </div>
+          </div>
+        ) : null}
       </Modal>
 
       {actionMessage && (
@@ -512,8 +709,12 @@ export function OPDManagement() {
               <h2 className="text-sm font-semibold text-ink">Consultation slips</h2>
             </div>
             <p className="rp-sub mb-3">Slip includes token, department, doctor, patient name and check-in time.</p>
-            <Button variant="secondary" onClick={() => setActionMessage("Blank consultation slip preview prepared.")}>
-              <Printer size={16} /> Preview template
+            <Button
+              variant="secondary"
+              onClick={handlePreviewTemplate}
+              disabled={previewLoading}
+            >
+              <Printer size={16} /> {previewLoading ? "Loading preview..." : "Preview template"}
             </Button>
           </Card>
         </div>

@@ -4,11 +4,12 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, Download, Plus, Printer, Trash2, Send } from "lucide-react";
 import { SectionHeading, Card, Avatar, Pill, Modal, Field, ListSkeleton, SectionSkeleton } from "@/components/ui";
-import { patients as seedPatients, prescriptions as seedRx, getPatient, matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
+import { matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { Medicine, Patient, Prescription } from "@/lib/types";
 import { CURRENT_DATE_ISO } from "@/lib/app-time";
-import { ApiSyncSkippedError, createBackendPrescription, getBackendBootstrap } from "@/lib/api-client";
+import { createBackendPrescription, getBackendBootstrap } from "@/lib/api-client";
+import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 
 function emptyMedicine(): Medicine {
   return { id: crypto.randomUUID?.() ?? String(Math.random()), name: "", dosage: "", frequency: "", duration: "", instructions: "" };
@@ -31,6 +32,7 @@ function PrescriptionBuilder() {
   const params = useSearchParams();
   const preselected = params.get("patient");
   const { selectedWorkplaceId, workContext } = useMode();
+  const { addPrescription } = useDoctorWorkflow();
   const [rxList, setRxList] = useState<Prescription[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [backendDoctorId, setBackendDoctorId] = useState("");
@@ -67,13 +69,14 @@ function PrescriptionBuilder() {
         if (cancelled) return;
         setPatients(data.patients);
         setRxList(data.prescriptions);
-        setBackendDoctorId(data.doctors[0]?.id ?? "");
+        setBackendDoctorId(data.currentDoctorId ?? data.doctors[0]?.id ?? "");
       })
       .catch(() => {
         if (cancelled) return;
-        setPatients(seedPatients);
-        setRxList(seedRx);
-        setBackendDoctorId("doc-1");
+        setPatients([]);
+        setRxList([]);
+        setBackendDoctorId("");
+        setSyncMessage("Unable to load prescriptions from the backend.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingPrescriptions(false);
@@ -109,11 +112,12 @@ function PrescriptionBuilder() {
     let nextPrescription: Prescription = {
       id: `rx-${Date.now()}`,
       patientId,
-      doctorId: backendDoctorId || "doc-1",
+      doctorId: backendDoctorId,
       date: CURRENT_DATE_ISO,
       medicines: filled,
       advice,
       status: "Active",
+      workplaceId: selectedWorkplaceId,
       workContext,
     };
     try {
@@ -126,8 +130,10 @@ function PrescriptionBuilder() {
       });
       setSyncMessage("Prescription synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock prescription saved locally." : "Backend sync failed; local prescription kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "prescription was not saved."}`);
+      return;
     }
+    addPrescription(nextPrescription);
     setRxList((prev) => [nextPrescription, ...prev]);
     setMedicines([emptyMedicine()]);
     setAdvice("");
@@ -160,7 +166,7 @@ function PrescriptionBuilder() {
           <>
             <button
               onClick={issue}
-              disabled={!signed || duplicateMedicineNames.length > 0}
+              disabled={!signed || duplicateMedicineNames.length > 0 || incompleteMedicines.length > 0}
               className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Send size={14} /> Issue Prescription
@@ -301,7 +307,7 @@ function PrescriptionBuilder() {
             </div>
             <div className="divide-y divide-line max-h-[640px] overflow-y-auto">
               {contextRxList.map((rx) => {
-                const patient = patientById.get(rx.patientId) ?? getPatient(rx.patientId);
+                const patient = patientById.get(rx.patientId);
                 return (
                   <div key={rx.id} className="px-5 py-3.5">
                     <div className="flex items-center gap-2.5 mb-1.5">

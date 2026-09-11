@@ -7,7 +7,7 @@ import clsx from "clsx";
 import { LogOut, X, Stethoscope } from "lucide-react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
-import { doctorWorkspaceNav, clinicOperationsNav, staffPortalNav } from "./nav-config";
+import { doctorWorkspaceNav, clinicOperationsNav } from "./nav-config";
 import { useMode } from "@/lib/mode-context";
 import { DoctorAiAssistant } from "@/components/doctor-workflow";
 
@@ -18,7 +18,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const isReceptionistPortal = pathname?.startsWith("/receptionist");
   const isAuthPage = pathname?.startsWith("/sign-in");
   const isImportedStaffPortal = pathname?.startsWith("/hospital-admin") || pathname?.startsWith("/billing-staff");
-  const mobileNavItems = [...doctorWorkspaceNav, ...(workContext === "clinic" ? clinicOperationsNav : []), ...staffPortalNav];
+  const mobileNavItems = [...doctorWorkspaceNav, ...(workContext === "clinic" ? clinicOperationsNav : [])];
 
   if (isReceptionistPortal || isAuthPage || isImportedStaffPortal) {
     return <>{children}</>;

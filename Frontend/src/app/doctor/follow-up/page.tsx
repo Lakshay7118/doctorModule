@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, CalendarClock } from "lucide-react";
 import { SectionHeading, Card, Avatar, Pill, EmptyState, Modal, ListSkeleton, SectionSkeleton } from "@/components/ui";
-import { patients as seedPatients, followUps as seedFollowUps, getPatient, matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
+import { matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { FollowUp, Patient } from "@/lib/types";
-import { ApiSyncSkippedError, createBackendFollowUp, getBackendBootstrap, updateBackendFollowUpStatus } from "@/lib/api-client";
+import { createBackendFollowUp, getBackendBootstrap, updateBackendFollowUpStatus } from "@/lib/api-client";
 
 const statusTone: Record<FollowUp["status"], "brand" | "clay" | "alert" | "sage"> = {
   Upcoming: "brand",
@@ -41,13 +41,14 @@ export default function FollowUpPage() {
         if (cancelled) return;
         setPatients(data.patients);
         setFollowUps(data.followUps);
-        setBackendDoctorId(data.doctors[0]?.id ?? "");
+        setBackendDoctorId(data.currentDoctorId ?? data.doctors[0]?.id ?? "");
       })
       .catch(() => {
         if (cancelled) return;
-        setPatients(seedPatients);
-        setFollowUps(seedFollowUps);
-        setBackendDoctorId("doc-1");
+        setPatients([]);
+        setFollowUps([]);
+        setBackendDoctorId("");
+        setSyncMessage("Unable to load follow-ups from the backend.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingFollowUps(false);
@@ -66,18 +67,22 @@ export default function FollowUpPage() {
 
   async function schedule() {
     if (!dueDate || !reason.trim()) return;
-    let nextFollowUp: FollowUp = { id: `fu-${Date.now()}`, patientId, doctorId: backendDoctorId || "doc-1", dueDate, reason, status: "Upcoming", workContext };
+    let nextFollowUp: FollowUp = { id: `fu-${Date.now()}`, patientId, doctorId: backendDoctorId, dueDate, reason, status: "Upcoming", workContext };
     try {
-      nextFollowUp = await createBackendFollowUp({
+      nextFollowUp = {
+        ...(await createBackendFollowUp({
         patientId,
         doctorId: backendDoctorId,
         workplaceId: selectedWorkplaceId,
         dueDate,
         reason,
-      });
+        })),
+        workContext,
+      };
       setSyncMessage("Follow-up synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock follow-up saved locally." : "Backend sync failed; local follow-up kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "follow-up was not saved."}`);
+      return;
     }
     setFollowUps((prev) => [nextFollowUp, ...prev]);
     setDueDate("");
@@ -86,12 +91,13 @@ export default function FollowUpPage() {
   }
 
   async function markComplete(id: string) {
-    setFollowUps((prev) => prev.map((f) => (f.id === id ? { ...f, status: "Completed" } : f)));
     try {
-      await updateBackendFollowUpStatus(id, "Completed");
+      const followUp = followUps.find((item) => item.id === id);
+      await updateBackendFollowUpStatus(id, "Completed", followUp?.workplaceId);
+      setFollowUps((prev) => prev.map((f) => (f.id === id ? { ...f, status: "Completed" } : f)));
       setSyncMessage("Follow-up status synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock follow-up updated locally." : "Backend sync failed; local follow-up status kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "follow-up status was not updated."}`);
     }
   }
 
@@ -178,7 +184,7 @@ export default function FollowUpPage() {
               <Card padded={false}>
                 <div className="divide-y divide-line">
                   {items.map((f) => {
-                    const patient = patientById.get(f.patientId) ?? getPatient(f.patientId);
+                    const patient = patientById.get(f.patientId);
                     if (!patient) return null;
                     return (
                       <div key={f.id} className="flex items-center gap-3.5 px-5 py-3.5">

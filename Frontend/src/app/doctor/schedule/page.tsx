@@ -8,8 +8,7 @@ import { Card, Field, Modal, Pill, SectionHeading, TimePicker, SectionSkeleton, 
 import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import { DoctorShift, ShiftType, shiftTypeLabel } from "@/lib/doctor-workflow-types";
 import { addDaysToISO, CURRENT_DATE_ISO, getLocalDateISO } from "@/lib/app-time";
-import { currentDoctor } from "@/lib/mock-data";
-import { ApiSyncSkippedError, createBackendShift, updateBackendShiftStatus } from "@/lib/api-client";
+import { createBackendShift } from "@/lib/api-client";
 
 const TODAY = CURRENT_DATE_ISO;
 const views = ["Day", "Week", "Month"] as const;
@@ -193,15 +192,6 @@ export default function DoctorSchedulePage() {
     });
   }
 
-  async function persistShiftStatus(id: string, status: "active" | "completed" | "cancelled") {
-    try {
-      await updateBackendShiftStatus(id, status);
-      setSyncMessage("Shift status synced to backend.");
-    } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock shift updated locally." : "Backend sync failed; local shift update kept.");
-    }
-  }
-
   async function createShift() {
     setFormError("");
     if (minutes(draft.startTime) >= minutes(draft.endTime)) {
@@ -240,14 +230,14 @@ export default function DoctorSchedulePage() {
 
     try {
       const savedShift = await createBackendShift({
-        doctorId: backendDoctorId ?? currentDoctor.id,
+        doctorId: backendDoctorId ?? "",
         ...nextShift,
       });
       addShift(savedShift);
       setSyncMessage("Shift saved to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock shift saved locally." : "Backend sync failed; local shift kept.");
-      addShift(nextShift);
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "shift was not saved."}`);
+      return;
     }
 
     setModal(null);
@@ -429,7 +419,6 @@ export default function DoctorSchedulePage() {
                   type="button"
                   onClick={() => {
                     startShift(selectedShift.id);
-                    persistShiftStatus(selectedShift.id, "active");
                   }}
                   className="btn-primary"
                 >
@@ -441,7 +430,6 @@ export default function DoctorSchedulePage() {
                   type="button"
                   onClick={() => {
                     completeShift(selectedShift.id);
-                    persistShiftStatus(selectedShift.id, "completed");
                   }}
                   className="btn-primary"
                 >
@@ -453,7 +441,6 @@ export default function DoctorSchedulePage() {
                 onClick={() => {
                   if (window.confirm("Cancel this shift and close patient booking for this time?")) {
                     updateShiftStatus(selectedShift.id, "cancelled");
-                    persistShiftStatus(selectedShift.id, "cancelled");
                   }
                 }}
                 className="btn-secondary"

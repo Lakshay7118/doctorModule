@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Bell, LayoutDashboard, LogOut, Menu, Search as SearchIcon, Stethoscope, Zap } from "lucide-react";
-import { navItems, ModuleId } from "./receptionist/nav-config";
+import { Bell, LogOut, Menu, Stethoscope, Zap } from "lucide-react";
+import { ModuleId, navItemsForContext } from "./receptionist/nav-config";
 import { PortalStyles } from "./receptionist/portal-styles";
 import { useReceptionistData } from "./receptionist/data-context";
 import { Input, Badge } from "./receptionist/ui";
@@ -22,8 +22,13 @@ import { EmergencyReception } from "./receptionist/EmergencyReception";
 import { Communication } from "./receptionist/Communication";
 import { Reports } from "./receptionist/Reports";
 import { Settings } from "./receptionist/Settings";
-import { GlobalSearch } from "./receptionist/GlobalSearch";
+import { GlobalSearch, ReceptionistNavbarSearch } from "./receptionist/GlobalSearch";
 import { QuickActions } from "./receptionist/QuickActions";
+import { FollowUps } from "./receptionist/FollowUps";
+import { Tasks } from "./receptionist/Tasks";
+import { Documents } from "./receptionist/Documents";
+import { Coordination } from "./receptionist/Coordination";
+import { AiAssistant } from "./receptionist/AiAssistant";
 
 function buildReceptionistSearchHref(query: string) {
   const trimmed = query.trim();
@@ -64,6 +69,16 @@ function ModuleBody({
       return <EmergencyReception />;
     case "communication":
       return <Communication />;
+    case "follow-ups":
+      return <FollowUps />;
+    case "tasks":
+      return <Tasks />;
+    case "documents":
+      return <Documents />;
+    case "coordination":
+      return <Coordination />;
+    case "ai-assistant":
+      return <AiAssistant />;
     case "reports":
       return <Reports />;
     case "settings":
@@ -107,18 +122,24 @@ function TopbarNotifications() {
 }
 
 function PortalShell({ moduleId, initialSearchQuery = "" }: { moduleId: ModuleId; initialSearchQuery?: string }) {
+  const { context } = useReceptionistData();
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState(initialSearchQuery);
   const todayLabel = formatReceptionistDate(todayIso());
+  const scopedNavItems = React.useMemo(() => navItemsForContext(context.type), [context.type]);
 
   React.useEffect(() => {
     if (moduleId === "search") setSearchQuery(initialSearchQuery);
   }, [initialSearchQuery, moduleId]);
 
+  React.useEffect(() => {
+    if (!context.allowedModules.includes(moduleId)) router.replace("/receptionist/dashboard");
+  }, [context.allowedModules, moduleId, router]);
+
   function handleNavigate(id: ModuleId) {
-    const item = navItems.find((n) => n.id === id);
+    const item = scopedNavItems.find((n) => n.id === id);
     setSidebarOpen(false);
     if (item) {
       router.push(item.href);
@@ -129,16 +150,6 @@ function PortalShell({ moduleId, initialSearchQuery = "" }: { moduleId: ModuleId
 
   function handleSearchChange(value: string) {
     setSearchQuery(value);
-    const href = buildReceptionistSearchHref(value);
-    if (moduleId === "search") {
-      router.replace(href);
-      return;
-    }
-    router.push(href);
-  }
-
-  function handleSearchFocus() {
-    if (moduleId !== "search") router.push(buildReceptionistSearchHref(searchQuery));
   }
 
   return (
@@ -153,12 +164,12 @@ function PortalShell({ moduleId, initialSearchQuery = "" }: { moduleId: ModuleId
               </div>
               <div>
                 <div className="rp-logo">Qlyno</div>
-                <div className="rp-logo-sub">Receptionist Portal</div>
+                <div className="rp-logo-sub">{context.label}</div>
               </div>
             </div>
           </div>
           <nav className="rp-nav">
-            {navItems.map((item) => {
+            {scopedNavItems.map((item) => {
               const Icon = item.icon;
               const active = item.id === moduleId || pathname?.startsWith(item.href);
               return (
@@ -174,7 +185,7 @@ function PortalShell({ moduleId, initialSearchQuery = "" }: { moduleId: ModuleId
               );
             })}
           </nav>
-          <div className="rp-sidebar-footer">Front Desk · Counter 2</div>
+          <div className="rp-sidebar-footer">{context.organizationName} · {context.scopeLabel}</div>
         </aside>
 
         {sidebarOpen && (
@@ -189,32 +200,18 @@ function PortalShell({ moduleId, initialSearchQuery = "" }: { moduleId: ModuleId
             <button className="rp-icon-btn rp-sidebar-toggle" style={{ width: 34, height: 34 }} onClick={() => setSidebarOpen(true)}>
               <Menu size={16} />
             </button>
-            {moduleId !== "dashboard" && (
-              <button type="button" className="btn-secondary text-xs" onClick={() => handleNavigate("dashboard")}>
-                <LayoutDashboard size={14} /> Dashboard
-              </button>
-            )}
-            <button type="button" className="btn-secondary text-xs" onClick={() => router.push("/doctor/dashboard")}>
-              <Stethoscope size={14} /> Doctor Module
-            </button>
-            <button type="button" className="btn-secondary text-xs" onClick={() => signOutToRoot(router.push)}>
-              <LogOut size={14} /> Sign Out
-            </button>
-            <form className="rp-topbar-search" onSubmit={(event) => event.preventDefault()}>
-              <SearchIcon size={15} className="rp-input-icon" />
-              <Input
-                className="!pl-9"
-                placeholder="Search patients, tokens, appointments…"
-                value={searchQuery}
-                onFocus={handleSearchFocus}
-                onChange={(event) => handleSearchChange(event.target.value)}
-              />
-            </form>
-            <button className="rp-icon-btn" style={{ width: 34, height: 34 }} title="Quick actions" onClick={() => handleNavigate("quick-actions")}>
-              <Zap size={16} />
-            </button>
-            <TopbarNotifications />
+            <ReceptionistNavbarSearch query={searchQuery} onQueryChange={handleSearchChange} />
+            <Badge tone="slate">{context.type === "solo-doctor" ? "Solo" : context.type === "clinic" ? "Clinic" : "Hospital"}</Badge>
             <Badge tone="pine">Today - {todayLabel}</Badge>
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <button className="rp-icon-btn" style={{ width: 34, height: 34 }} title="Quick actions" onClick={() => handleNavigate("quick-actions")}>
+                <Zap size={16} />
+              </button>
+              <TopbarNotifications />
+              <button type="button" className="btn-secondary text-xs" onClick={() => signOutToRoot(router.push)}>
+                <LogOut size={14} /> Sign Out
+              </button>
+            </div>
           </header>
 
           <main className="rp-content">
@@ -233,7 +230,7 @@ function PortalShell({ moduleId, initialSearchQuery = "" }: { moduleId: ModuleId
 
 // Note: state (patients, appointments, queue, etc.) lives in
 // ReceptionistDataProvider, which wraps this tree from
-// receptionist/layout.tsx — not here — so it persists as reception
+// receptionist/layout.tsx - not here - so it persists as reception
 // staff move between modules (dashboard -> registration -> check-in, ...)
 // instead of resetting on every route change.
 export function ReceptionistModulePage({

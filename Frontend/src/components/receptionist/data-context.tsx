@@ -6,14 +6,28 @@ import {
   isUuid,
   createBackendReceptionistAdmission,
   createBackendReceptionistAppointment,
+  createBackendReceptionistAction,
   createBackendReceptionistCheckIn,
   createBackendReceptionistEmergencyCase,
   createBackendReceptionistNotification,
   createBackendReceptionistPatient,
   createBackendReceptionistVisitor,
+  deactivateBackendReceptionistPatient,
+  generateBackendReceptionistReport,
   checkOutBackendReceptionistVisitor,
   getBackendReceptionistBootstrap,
+  saveBackendReceptionistSettings,
   updateBackendReceptionistAppointmentStatus,
+  updateBackendReceptionistPatient,
+} from "@/lib/api-client";
+import type {
+  BackendReceptionistAuditTrail,
+  BackendReceptionistContext,
+  BackendReceptionistCoordinationRow,
+  BackendReceptionistDocument,
+  BackendReceptionistFollowUp,
+  BackendReceptionistSettings,
+  BackendReceptionistTask,
 } from "@/lib/api-client";
 import { Card, SectionSkeleton, Skeleton } from "@/components/ui";
 import {
@@ -62,7 +76,64 @@ export interface BillingRow {
   status: "Paid" | "Pending" | "Advance received";
 }
 
+const defaultReceptionistContext: BackendReceptionistContext = {
+  type: "hospital",
+  label: "Hospital Receptionist",
+  organizationName: "Hospital",
+  workplaceId: "",
+  timeZone: "Asia/Kolkata",
+  ownerLabel: "Hospital admin",
+  scopeLabel: "Assigned hospital desks, departments and workflows",
+  allowedModules: [
+    "dashboard",
+    "patient-directory",
+    "appointments",
+    "check-in",
+    "opd",
+    "ipd-admission",
+    "visitors",
+    "billing",
+    "emergency",
+    "communication",
+    "reports",
+    "settings",
+    "search",
+    "quick-actions",
+    "follow-ups",
+    "tasks",
+    "documents",
+    "coordination",
+    "ai-assistant",
+  ],
+  permissions: {
+    patientRegistration: true,
+    appointments: true,
+    checkInQueue: true,
+    billing: true,
+    communication: true,
+    documents: true,
+    followUps: true,
+    tasks: true,
+    whatsApp: true,
+    aiAssistant: true,
+    opdRouting: true,
+    admissions: true,
+    discharge: true,
+    visitors: true,
+    emergencyRouting: true,
+    diagnostics: true,
+    pharmacy: true,
+    clinicalAccess: false,
+  },
+  boundaries: [
+    "Reception can update demographic and operational workflow data only.",
+    "Clinical notes, diagnosis, report interpretation and medical decisions stay with clinical staff.",
+    "Emergency questions must be routed to the configured clinical team.",
+  ],
+};
+
 interface ReceptionistData {
+  context: BackendReceptionistContext;
   doctors: ReceptionistDoctor[];
   wards: string[];
   patients: Patient[];
@@ -73,8 +144,16 @@ interface ReceptionistData {
   emergencyCases: EmergencyCase[];
   billingRows: BillingRow[];
   notifications: NotificationItem[];
-  addPatient: (p: Omit<Patient, "uhid">) => Patient;
-  addAppointment: (a: Omit<Appointment, "id">) => Appointment;
+  followUps: BackendReceptionistFollowUp[];
+  tasks: BackendReceptionistTask[];
+  coordination: BackendReceptionistCoordinationRow[];
+  documents: BackendReceptionistDocument[];
+  auditTrail: BackendReceptionistAuditTrail[];
+  settings: BackendReceptionistSettings | null;
+  addPatient: (p: Omit<Patient, "uhid"> & { email?: string; address?: string; notes?: string }) => Promise<Patient>;
+  updatePatient: (id: string, input: Parameters<typeof updateBackendReceptionistPatient>[1]) => Promise<void>;
+  deactivatePatient: (id: string, workplaceId?: string) => Promise<void>;
+  addAppointment: (a: Omit<Appointment, "id">) => Promise<Appointment>;
   updateAppointmentStatus: (id: string, status: Appointment["status"]) => void;
   checkIn: (q: Omit<QueueEntry, "token">) => QueueEntry;
   advanceQueueStatus: (token: string, status: QueueEntry["status"]) => void;
@@ -83,6 +162,9 @@ interface ReceptionistData {
   addAdmission: (a: Omit<Admission, "id">) => Admission;
   addEmergencyCase: (e: Omit<EmergencyCase, "id" | "arrivedAt">) => EmergencyCase;
   sendStaffMessage: (message: { recipient: string; subject: string; body: string; channel: NotificationItem["channel"] }) => void;
+  recordAction: (action: { action: Parameters<typeof createBackendReceptionistAction>[0]["action"]; subject: string; detail: string; relatedType?: string; relatedId?: string }) => void;
+  generateReport: (input: Parameters<typeof generateBackendReceptionistReport>[0]) => Promise<Record<string, number> | undefined>;
+  saveSettings: (input: BackendReceptionistSettings) => void;
   pushNotification: (n: Omit<NotificationItem, "id" | "time">) => void;
 }
 
@@ -149,6 +231,7 @@ function ReceptionistWorkspaceSkeleton() {
 
 export function ReceptionistDataProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = React.useState(true);
+  const [context, setContext] = React.useState<BackendReceptionistContext>(defaultReceptionistContext);
   const [doctors, setDoctors] = React.useState<ReceptionistDoctor[]>([]);
   const [wards, setWards] = React.useState<string[]>([]);
   const [backendWorkplaceId, setBackendWorkplaceId] = React.useState<string | undefined>();
@@ -160,9 +243,16 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
   const [emergencyCases, setEmergencyCases] = React.useState<EmergencyCase[]>([]);
   const [billingRows, setBillingRows] = React.useState<BillingRow[]>([]);
   const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
+  const [followUps, setFollowUps] = React.useState<BackendReceptionistFollowUp[]>([]);
+  const [tasks, setTasks] = React.useState<BackendReceptionistTask[]>([]);
+  const [coordination, setCoordination] = React.useState<BackendReceptionistCoordinationRow[]>([]);
+  const [documents, setDocuments] = React.useState<BackendReceptionistDocument[]>([]);
+  const [auditTrail, setAuditTrail] = React.useState<BackendReceptionistAuditTrail[]>([]);
+  const [settings, setSettings] = React.useState<BackendReceptionistSettings | null>(null);
 
   function applyBackendSnapshot(data: Awaited<ReturnType<typeof getBackendReceptionistBootstrap>>) {
     setBackendWorkplaceId(data.workplaceId);
+    setContext(data.context ?? defaultReceptionistContext);
     setDoctors(data.doctors);
     setWards(data.wards);
     setPatients(data.patients);
@@ -173,6 +263,12 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     setEmergencyCases(data.emergencyCases);
     setBillingRows(data.billingRows);
     setNotifications(data.notifications);
+    setFollowUps(data.followUps ?? []);
+    setTasks(data.tasks ?? []);
+    setCoordination(data.coordination ?? []);
+    setDocuments(data.documents ?? []);
+    setAuditTrail(data.auditTrail ?? []);
+    setSettings(data.settings ?? null);
   }
 
   React.useEffect(() => {
@@ -208,7 +304,7 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     return doctors.find((doctor) => doctor.name === name);
   }
 
-  const addPatient: ReceptionistData["addPatient"] = (p) => {
+  const addPatient: ReceptionistData["addPatient"] = async (p) => {
     const doctor = findBackendDoctorForDepartment(p.department);
     const patient: Patient = {
       ...p,
@@ -216,68 +312,84 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
       primaryDoctorId: doctor?.backendId,
       workplaceId: backendWorkplaceId,
     };
-    setPatients((prev) => [patient, ...prev]);
-    pushNotification({
-      title: "Patient registered",
-      detail: `${patient.name} registered with ${patient.uhid}`,
-      channel: "System",
-    });
 
-    void createBackendReceptionistPatient({
+    const snapshot = await createBackendReceptionistPatient({
       qlynoId: patient.uhid,
       fullName: patient.name,
       gender: patient.gender,
       dateOfBirth: birthDateFromAge(patient.age),
       phone: patient.phone,
+      email: p.email,
       bloodGroup: patient.bloodGroup,
       primaryDoctorId: doctor?.backendId,
       workplaceId: backendWorkplaceId,
       localMrn: patient.uhid,
       department: patient.department,
-    })
-      .then(applyBackendSnapshot)
-      .catch(ignoreSyncError);
-
-    return patient;
+      address: p.address,
+      notes: p.notes,
+    });
+    applyBackendSnapshot(snapshot);
+    const savedPatient =
+      snapshot.patients.find((item) => item.uhid === patient.uhid) ??
+      snapshot.patients.find((item) => item.name === patient.name && item.phone === patient.phone);
+    if (!savedPatient?.backendId) throw new Error("Patient registration was not returned from the backend.");
+    pushNotification({
+      title: "Patient registered",
+      detail: `${savedPatient.name} registered with ${savedPatient.uhid}`,
+      channel: "System",
+    });
+    return savedPatient;
   };
 
-  const addAppointment: ReceptionistData["addAppointment"] = (a) => {
+  const addAppointment: ReceptionistData["addAppointment"] = async (a) => {
     const patient = patients.find((item) => item.uhid === a.uhid);
     const doctor = findDoctorOption(a.doctor);
+    const patientId = patient?.backendId;
+    const doctorId = doctor?.backendId;
+    const workplaceId = patient?.workplaceId ?? backendWorkplaceId;
+    if (!isUuid(patientId) || !isUuid(doctorId) || !isUuid(workplaceId)) {
+      throw new ApiSyncSkippedError("Appointment booking needs a patient and doctor saved in the backend database.");
+    }
     const appt: Appointment = {
       ...a,
       date: formatReceptionistDate(a.date),
       id: `APT-${1043 + appointments.length}`,
-      patientId: patient?.backendId,
-      doctorId: doctor?.backendId,
-      workplaceId: patient?.workplaceId ?? backendWorkplaceId,
+      patientId,
+      doctorId,
+      workplaceId,
     };
-    setAppointments((prev) => [appt, ...prev]);
+    const snapshot = await createBackendReceptionistAppointment({
+      patientId,
+      doctorId,
+      workplaceId,
+      date: parseReceptionistDate(appt.date),
+      time: appt.time,
+      durationMins: 20,
+      type: "In-Person",
+      reason: "Front desk booking",
+    });
+    applyBackendSnapshot(snapshot);
     pushNotification({
       title: "Appointment booked",
       detail: `${appt.patient} scheduled with ${appt.doctor} on ${appt.date}, ${appt.time}`,
       channel: "SMS",
     });
+    return snapshot.appointments.find((item) => item.patientId === patientId && item.doctorId === doctorId) ?? appt;
+  };
 
-    const patientId = patient?.backendId;
-    const doctorId = doctor?.backendId;
-    const workplaceId = appt.workplaceId;
-    if (isUuid(patientId) && isUuid(doctorId) && isUuid(workplaceId)) {
-      void createBackendReceptionistAppointment({
-        patientId,
-        doctorId,
-        workplaceId,
-        date: parseReceptionistDate(appt.date),
-        time: appt.time,
-        durationMins: 20,
-        type: "In-Person",
-        reason: "Front desk booking",
-      })
-        .then(applyBackendSnapshot)
-        .catch(ignoreSyncError);
-    }
+  const updatePatient: ReceptionistData["updatePatient"] = async (patientId, input) => {
+    const patient = patients.find((item) => item.backendId === patientId);
+    const snapshot = await updateBackendReceptionistPatient(patientId, {
+      ...input,
+      workplaceId: input.workplaceId ?? patient?.workplaceId ?? backendWorkplaceId,
+    });
+    applyBackendSnapshot(snapshot);
+  };
 
-    return appt;
+  const deactivatePatient: ReceptionistData["deactivatePatient"] = async (patientId, workplaceId) => {
+    const patient = patients.find((item) => item.backendId === patientId);
+    const snapshot = await deactivateBackendReceptionistPatient(patientId, workplaceId ?? patient?.workplaceId ?? backendWorkplaceId);
+    applyBackendSnapshot(snapshot);
   };
 
   const updateAppointmentStatus: ReceptionistData["updateAppointmentStatus"] = (id, status) => {
@@ -448,7 +560,47 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
       .catch(ignoreSyncError);
   };
 
+  const recordAction: ReceptionistData["recordAction"] = (action) => {
+    pushNotification({
+      title: action.subject,
+      detail: action.detail,
+      channel: "System",
+    });
+    void createBackendReceptionistAction({
+      ...action,
+      workplaceId: backendWorkplaceId,
+    })
+      .then(applyBackendSnapshot)
+      .catch(ignoreSyncError);
+  };
+
+  const generateReport: ReceptionistData["generateReport"] = async (input) => {
+    try {
+      const payload = await generateBackendReceptionistReport({
+        ...input,
+        workplaceId: backendWorkplaceId,
+      });
+      applyBackendSnapshot(payload.data);
+      return payload.report;
+    } catch (error) {
+      ignoreSyncError(error);
+      return undefined;
+    }
+  };
+
+  const saveSettings: ReceptionistData["saveSettings"] = (input) => {
+    const nextSettings = { ...(settings ?? {}), ...input };
+    setSettings(nextSettings);
+    void saveBackendReceptionistSettings({
+      ...input,
+      workplaceId: backendWorkplaceId,
+    })
+      .then(applyBackendSnapshot)
+      .catch(ignoreSyncError);
+  };
+
   const value: ReceptionistData = {
+    context,
     doctors,
     wards,
     patients,
@@ -459,7 +611,15 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     emergencyCases,
     billingRows,
     notifications,
+    followUps,
+    tasks,
+    coordination,
+    documents,
+    auditTrail,
+    settings,
     addPatient,
+    updatePatient,
+    deactivatePatient,
     addAppointment,
     updateAppointmentStatus,
     checkIn,
@@ -469,6 +629,9 @@ export function ReceptionistDataProvider({ children }: { children: React.ReactNo
     addAdmission,
     addEmergencyCase,
     sendStaffMessage,
+    recordAction,
+    generateReport,
+    saveSettings,
     pushNotification,
   };
 

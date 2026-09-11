@@ -1,26 +1,17 @@
 "use client";
 
 import { SectionHeading, Card, Pill } from "@/components/ui";
-import { appointments, diagnoses, patients, prescriptions, followUps, matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
-
-const weeklyVolume = [
-  { day: "Mon", count: 14 },
-  { day: "Tue", count: 18 },
-  { day: "Wed", count: 11 },
-  { day: "Thu", count: 16 },
-  { day: "Fri", count: 20 },
-  { day: "Sat", count: 9 },
-  { day: "Sun", count: 3 },
-];
+import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 
 export default function ReportsPage() {
   const { workContext } = useMode();
-  const contextAppointments = appointments.filter((a) => matchesWorkContext(a, workContext));
-  const contextDiagnoses = diagnoses.filter((d) => matchesWorkContext(d, workContext));
-  const contextPatients = patients.filter((p) => patientInWorkContext(p, workContext));
-  const contextPrescriptions = prescriptions.filter((rx) => matchesWorkContext(rx, workContext));
-  const contextFollowUps = followUps.filter((f) => matchesWorkContext(f, workContext));
+  const { appointments, diagnoses, followUps, patients, prescriptions } = useDoctorWorkflow();
+  const contextAppointments = appointments.filter((appointment) => appointment.workContext === workContext);
+  const contextDiagnoses = diagnoses.filter((diagnosis) => !diagnosis.workplaceId || contextAppointments.some((appointment) => appointment.workplaceId === diagnosis.workplaceId));
+  const contextPatients = patients.filter((patient) => contextAppointments.some((appointment) => appointment.patientId === patient.id));
+  const contextPrescriptions = prescriptions.filter((prescription) => !prescription.workplaceId || contextAppointments.some((appointment) => appointment.workplaceId === prescription.workplaceId));
+  const contextFollowUps = followUps.filter((followUp) => !followUp.workplaceId || contextAppointments.some((appointment) => appointment.workplaceId === followUp.workplaceId));
 
   const totalConsultations = contextAppointments.filter((a) => a.status === "Completed").length;
   const completedFollowUps = contextFollowUps.filter((f) => f.status === "Completed").length;
@@ -33,6 +24,14 @@ export default function ReportsPage() {
   const statusCounts = new Map<string, number>();
   contextAppointments.forEach((a) => statusCounts.set(a.status, (statusCounts.get(a.status) ?? 0) + 1));
 
+  const weeklyVolume = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => ({
+    day,
+    count: contextAppointments.filter((appointment) => {
+      const date = new Date(`${appointment.date}T00:00:00.000Z`);
+      const dayIndex = (date.getUTCDay() + 6) % 7;
+      return dayIndex === index && date.getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000;
+    }).length,
+  }));
   const maxWeekly = Math.max(...weeklyVolume.map((w) => w.count));
 
   return (

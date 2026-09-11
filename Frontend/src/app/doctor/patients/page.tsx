@@ -4,14 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Search, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { SectionHeading, Card, Avatar, Pill, EmptyState, Modal, Field, ListSkeleton, SectionSkeleton } from "@/components/ui";
-import { patients, doctors as seedDoctors, getDoctor, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
-import { Patient } from "@/lib/types";
+import { Doctor, Patient } from "@/lib/types";
+import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import {
-  ApiSyncSkippedError,
   createBackendPatient,
   deleteBackendPatient,
-  getBackendPatients,
   updateBackendPatient,
 } from "@/lib/api-client";
 
@@ -29,9 +27,9 @@ function birthDateFromAge(age: number) {
 
 export default function PatientsPage() {
   const { selectedWorkplaceId, workContext } = useMode();
+  const { doctors, isLoadingWorkflow, patients } = useDoctorWorkflow();
   const [patientRows, setPatientRows] = useState<Patient[]>([]);
-  const [doctorRows, setDoctorRows] = useState<typeof seedDoctors>([]);
-  const [isLoadingPatients, setIsLoadingPatients] = useState(true);
+  const [doctorRows, setDoctorRows] = useState<Doctor[]>([]);
   const [query, setQuery] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -48,35 +46,15 @@ export default function PatientsPage() {
   });
 
   useEffect(() => {
-    let cancelled = false;
-
-    getBackendPatients()
-      .then((data) => {
-        if (cancelled) return;
-        setPatientRows(data);
-        setDoctorRows(seedDoctors);
-        setForm((prev) => ({ ...prev, doctorId: seedDoctors[0]?.id ?? prev.doctorId }));
-        setSyncMessage("Loaded backend patient data.");
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setPatientRows(patients);
-        setDoctorRows(seedDoctors);
-        setForm((prev) => ({ ...prev, doctorId: seedDoctors[0]?.id ?? prev.doctorId }));
-        setSyncMessage("Backend unavailable; using local demo patients.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingPatients(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setPatientRows(patients);
+    setDoctorRows(doctors);
+    setForm((prev) => ({ ...prev, doctorId: prev.doctorId || doctors[0]?.id || "" }));
+    if (patients.length > 0) setSyncMessage("Loaded patient data.");
+  }, [doctors, patients]);
 
   const filtered = useMemo(() => {
     return patientRows.filter((p) => {
-      if (!patientInWorkContext(p, workContext)) return false;
+      if (p.workContexts?.length && !p.workContexts.includes(workContext)) return false;
       const matchesQuery =
         !query ||
         p.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -86,10 +64,10 @@ export default function PatientsPage() {
     });
   }, [patientRows, query, tagFilter, workContext]);
 
-  const contextRows = patientRows.filter((p) => patientInWorkContext(p, workContext));
+  const contextRows = patientRows.filter((p) => !p.workContexts?.length || p.workContexts.includes(workContext));
   const allTags = Array.from(new Set(contextRows.flatMap((p) => p.tags ?? [])));
 
-  if (isLoadingPatients) {
+  if (isLoadingWorkflow) {
     return (
       <div>
         <SectionSkeleton />
@@ -179,8 +157,7 @@ export default function PatientsPage() {
         setPatientRows((prev) => prev.map((patient) => (patient.id === editingPatientId ? { ...backendPatient, primaryDoctorId: form.doctorId, bloodGroup: form.bloodGroup, conditions: form.condition ? [form.condition] : [] } : patient)));
         setSyncMessage("Patient changes synced to backend.");
       } catch (error) {
-        setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock patient updated locally." : `Backend sync failed: ${error instanceof Error ? error.message : "local patient update kept."}`);
-        setPatientRows((prev) => prev.map((patient) => (patient.id === editingPatientId ? updatedPatient : patient)));
+        setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "patient update was not saved."}`);
       }
       resetForm();
       setShowForm(false);
@@ -204,7 +181,6 @@ export default function PatientsPage() {
       lastVisit: "New registration",
       tags: ["New"],
     };
-    let savedToBackend = false;
     try {
       const backendPatient = await createBackendPatient({
         qlynoId: `QLYNO-${Date.now()}`,
@@ -218,12 +194,11 @@ export default function PatientsPage() {
         localMrn: nextPatient.mrn,
       });
       setPatientRows((prev) => [{ ...backendPatient, primaryDoctorId: form.doctorId, bloodGroup: form.bloodGroup, conditions: form.condition ? [form.condition] : [] }, ...prev]);
-      savedToBackend = true;
       setSyncMessage("Patient registration synced to backend.");
     } catch (error) {
-      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "local patient registration kept."}`);
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "patient registration was not saved."}`);
+      return;
     }
-    if (!savedToBackend) setPatientRows((prev) => [nextPatient, ...prev]);
     resetForm();
     setShowForm(false);
   }
@@ -235,7 +210,8 @@ export default function PatientsPage() {
       await deleteBackendPatient(id);
       setSyncMessage("Patient deleted from backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock patient deleted locally." : "Backend delete failed; local patient removed.");
+      setSyncMessage(`Backend delete failed: ${error instanceof Error ? error.message : "patient was not deleted."}`);
+      return;
     }
     setPatientRows((prev) => prev.filter((patient) => patient.id !== id));
   }
@@ -383,7 +359,7 @@ export default function PatientsPage() {
         ) : (
           <div className="divide-y divide-line">
             {filtered.map((p) => {
-              const doctor = doctorRows.find((d) => d.id === p.primaryDoctorId) ?? getDoctor(p.primaryDoctorId);
+              const doctor = doctorRows.find((d) => d.id === p.primaryDoctorId);
               return (
                 <Link
                   key={p.id}

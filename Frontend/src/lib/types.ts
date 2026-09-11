@@ -27,6 +27,7 @@ export type DoctorAvailability = "Available" | "Busy" | "Off" | "On Leave";
 
 export interface Doctor {
   id: string;
+  userAccountId?: string;
   name: string;
   specialty: string;
   qualifications: string;
@@ -36,16 +37,19 @@ export interface Doctor {
   locationId?: string;
   rating?: number;
   patientsCount?: number;
+  workplaceIds?: string[];
 }
 
 export type StaffRole = "Receptionist" | "Nurse" | "Assistant" | "Lab/Pharmacy User";
 
 export interface StaffMember {
   id: string;
+  userAccountId?: string;
   name: string;
   role: StaffRole;
   locationId?: string;
   status: "Active" | "Invited" | "Suspended";
+  workplaceIds?: string[];
 }
 
 export interface Vitals {
@@ -76,6 +80,7 @@ export interface Patient {
   avatarInitials: string;
   primaryDoctorId: string;
   clinicId?: string;
+  workplaceIds?: string[];
   workContexts?: WorkContext[];
   bloodGroup: string;
   allergies: Allergy[];
@@ -100,6 +105,7 @@ export interface Appointment {
   patientId: string;
   doctorId: string;
   locationId?: string;
+  workplaceId?: string;
   workContext?: WorkContext;
   date: string; // ISO date
   time: string; // "09:30 AM"
@@ -117,6 +123,7 @@ export interface DiagnosisEntry {
   diagnosedOn: string;
   status: "Active" | "Resolved" | "Chronic";
   doctorId: string;
+  workplaceId?: string;
   workContext?: WorkContext;
 }
 
@@ -137,6 +144,7 @@ export interface Prescription {
   medicines: Medicine[];
   advice: string;
   status: "Active" | "Completed";
+  workplaceId?: string;
   workContext?: WorkContext;
 }
 
@@ -151,7 +159,14 @@ export interface LabOrder {
   status: OrderStatus;
   source: "Internal" | "Partner Lab" | "External / Manual";
   priority: "Routine" | "Urgent";
+  workplaceId?: string;
   workContext?: WorkContext;
+  report?: {
+    resultSummary?: string | null;
+    interpretation?: string | null;
+    resultAt?: string | null;
+    status?: string | null;
+  };
 }
 
 export type ImagingType = "X-Ray" | "CT Scan" | "MRI" | "Ultrasound";
@@ -165,6 +180,7 @@ export interface RadiologyOrder {
   orderedOn: string;
   status: OrderStatus;
   priority: "Routine" | "Urgent";
+  workplaceId?: string;
   workContext?: WorkContext;
 }
 
@@ -175,6 +191,7 @@ export interface FollowUp {
   dueDate: string;
   reason: string;
   status: "Upcoming" | "Due Today" | "Overdue" | "Completed";
+  workplaceId?: string;
   workContext?: WorkContext;
 }
 

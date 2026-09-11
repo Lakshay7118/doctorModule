@@ -33,6 +33,8 @@ export function Appointments() {
     date: tomorrowIso(),
     time: nextBookableTime,
   });
+  const [saveError, setSaveError] = React.useState("");
+  const [isSaving, setIsSaving] = React.useState(false);
   const isPastSlot = isPastReceptionistAppointment(form.date, form.time);
 
   React.useEffect(() => {
@@ -43,25 +45,33 @@ export function Appointments() {
     }));
   }, [doctors, patients]);
 
-  function handleBook(event: React.FormEvent) {
+  async function handleBook(event: React.FormEvent) {
     event.preventDefault();
-    if (isPastReceptionistAppointment(form.date, form.time)) return;
+    if (isPastReceptionistAppointment(form.date, form.time) || isSaving) return;
+    setSaveError("");
 
     const patient = patients.find((item) => item.uhid === form.uhid);
     if (!patient) return;
 
     const doctor = doctors.find((item) => item.name === form.doctor);
     if (!doctor) return;
-    addAppointment({
-      patient: patient.name,
-      uhid: patient.uhid,
-      doctor: doctor.name,
-      department: doctor.department,
-      date: form.date,
-      time: form.time,
-      status: "Confirmed",
-    });
-    setModalOpen(false);
+    setIsSaving(true);
+    try {
+      await addAppointment({
+        patient: patient.name,
+        uhid: patient.uhid,
+        doctor: doctor.name,
+        department: doctor.department,
+        date: form.date,
+        time: form.time,
+        status: "Confirmed",
+      });
+      setModalOpen(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Appointment could not be saved to the backend database.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -112,13 +122,14 @@ export function Appointments() {
             </p>
           )}
           <div className="flex flex-wrap gap-3">
-            <Button type="submit" disabled={isPastSlot}>
-              <CalendarPlus size={16} /> Confirm appointment
+            <Button type="submit" disabled={isPastSlot || isSaving}>
+              <CalendarPlus size={16} /> {isSaving ? "Saving..." : "Confirm appointment"}
             </Button>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
           </div>
+          {saveError && <p role="alert" className="rounded-md border border-alert-100 bg-alert-50 px-3 py-2 text-xs font-medium text-alert-500">{saveError}</p>}
         </form>
       </Modal>
 

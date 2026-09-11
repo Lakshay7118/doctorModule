@@ -5,6 +5,7 @@ import {
   ClinicLocation,
   ClinicalAlert,
   Conversation,
+  ConsultationNote,
   DiagnosisEntry,
   Doctor,
   FollowUp,
@@ -18,10 +19,11 @@ import {
   Vitals,
   WorkContext,
 } from "./types";
-import { DoctorShift, ShiftStatus, ShiftType, Workplace, WorkplaceType } from "./doctor-workflow-types";
+import { DoctorShift, DoctorTaskItem, HospitalWorkItem, ShiftStatus, ShiftType, Workplace, WorkplaceType } from "./doctor-workflow-types";
 import { getLocalDateISO } from "./app-time";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+const HMS_AUTH_KEY = "qlyno.hms.auth.v1";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class ApiSyncSkippedError extends Error {
@@ -41,12 +43,26 @@ function requireUuid(value: string, label: string) {
   }
 }
 
+function getHmsAccessToken() {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(HMS_AUTH_KEY) ?? window.sessionStorage.getItem(HMS_AUTH_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { accessToken?: unknown };
+    return typeof parsed.accessToken === "string" ? parsed.accessToken : null;
+  } catch {
+    return null;
+  }
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const accessToken = getHmsAccessToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -95,7 +111,9 @@ function orderStatus(status: OrderStatus) {
 export function toIsoDateTime(date: string, time: string) {
   const trimmed = time.trim();
   const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!match) return new Date(`${date}T${trimmed}`).toISOString();
+  if (!match) {
+    return new Date(`${date}T${trimmed}`).toISOString();
+  }
 
   let hours = Number(match[1]);
   const minutes = Number(match[2]);
@@ -103,7 +121,9 @@ export function toIsoDateTime(date: string, time: string) {
   if (meridian === "PM" && hours !== 12) hours += 12;
   if (meridian === "AM" && hours === 12) hours = 0;
 
-  return `${date}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00.000Z`;
+  // The form is entered in the user's local timezone. Convert it to UTC only
+  // when sending it to the backend so availability checks use the same instant.
+  return new Date(`${date}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`).toISOString();
 }
 
 export async function getBackendHealth() {
@@ -172,8 +192,8 @@ export async function createBackendLaboratoryPatient(input: {
 }
 
 export async function getBackendPatients() {
-  const payload = await requestJson<{ data: BackendLaboratoryPatient[] }>("/api/patients");
-  return payload.data.map(toFrontendPatientFromLaboratoryPatient);
+  const data = await getBackendBootstrap();
+  return data.patients;
 }
 
 export async function createBackendLaboratoryEncounter(input: {
@@ -221,17 +241,20 @@ interface BackendWorkplace {
   id: string;
   name: string;
   type: "SOLO_PRACTICE" | "CLINIC" | "HOSPITAL" | "ONLINE_PRACTICE";
-  locations: BackendLocation[];
+  locations?: BackendLocation[];
+  workplace_locations?: BackendLocation[];
   legalName?: string | null;
   status?: string;
 }
 
 interface BackendDoctor {
   id: string;
+  userAccountId?: string | null;
   fullName: string;
   specialty: string;
   qualifications?: string | null;
   experienceYears?: number | null;
+  doctor_workplaces?: Array<{ workplaceId: string }>;
 }
 
 interface BackendPatient {
@@ -243,9 +266,12 @@ interface BackendPatient {
   email?: string | null;
   bloodGroup?: string | null;
   primaryDoctorId?: string | null;
-  workplaces: Array<{ localMrn?: string | null; workplaceId: string }>;
-  allergies: Array<{ substance: string; severity: "MILD" | "MODERATE" | "SEVERE"; reaction?: string | null }>;
-  conditions: Array<{ name: string }>;
+  workplaces?: Array<{ localMrn?: string | null; workplaceId: string }>;
+  patient_workplaces?: Array<{ localMrn?: string | null; workplaceId: string }>;
+  allergies?: Array<{ substance: string; severity: "MILD" | "MODERATE" | "SEVERE"; reaction?: string | null }>;
+  patient_allergies?: Array<{ substance: string; severity: "MILD" | "MODERATE" | "SEVERE"; reaction?: string | null }>;
+  conditions?: Array<{ name: string }>;
+  patient_conditions?: Array<{ name: string }>;
 }
 
 interface BackendAppointment {
@@ -259,6 +285,7 @@ interface BackendAppointment {
   mode: "IN_PERSON" | "VIDEO" | "HOME" | "HOSPITAL";
   status: string;
   reason?: string | null;
+  checkedInAt?: string | null;
 }
 
 interface BackendShift {
@@ -293,6 +320,7 @@ interface BackendDiagnosis {
   description: string;
   status: string;
   diagnosedAt: string;
+  encounters?: { workplaceId: string; doctorId: string } | null;
 }
 
 interface BackendPrescription {
@@ -326,6 +354,7 @@ interface BackendOrder {
   priority: string;
   source?: string | null;
   orderedAt: string;
+  reports?: { resultSummary?: string | null; interpretation?: string | null; resultAt?: string | null; status?: string | null } | null;
 }
 
 interface BackendFollowUp {
@@ -336,6 +365,50 @@ interface BackendFollowUp {
   status: string;
   dueAt?: string | null;
   reason: string;
+}
+
+interface BackendEncounter {
+  id: string;
+  patientId: string;
+  doctorId: string;
+  workplaceId: string;
+  appointmentId?: string | null;
+  type: string;
+  status: string;
+  chiefComplaint?: string | null;
+  history?: string | null;
+  assessment?: string | null;
+  treatmentPlan?: string | null;
+  createdAt: string;
+}
+
+interface BackendTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: "OPEN" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  dueAt?: string | null;
+  patientId?: string | null;
+  workplaceId?: string | null;
+  appointmentId?: string | null;
+  createdAt: string;
+  task_assignees?: Array<{ user_accounts?: { email: string } | null }>;
+}
+
+interface BackendAdmission {
+  id: string;
+  patientId: string;
+  workplaceId: string;
+  encounterId: string;
+  status: string;
+  doctorCleared: boolean;
+  admittedAt: string;
+  bed?: { code: string } | null;
+  encounters?: {
+    assessment?: string | null;
+    diagnoses?: Array<{ description: string; status: string }>;
+  } | null;
 }
 
 interface BackendVitalSet {
@@ -353,10 +426,12 @@ interface BackendVitalSet {
 
 interface BackendStaff {
   id: string;
+  userAccountId?: string | null;
   fullName: string;
   role: string;
   status: string;
-  memberships: Array<{ workplaceId: string; role?: string | null }>;
+  memberships?: Array<{ workplaceId: string; role?: string | null }>;
+  staff_workplaces?: Array<{ workplaceId: string; role?: string | null }>;
 }
 
 interface BackendNotification {
@@ -375,8 +450,8 @@ interface BackendConversation {
   id: string;
   type: "PATIENT" | "CLINIC_STAFF" | "DOCTOR" | "REFERRAL";
   title?: string | null;
-  participants: Array<{ displayName: string; participantType: string; lastReadAt?: string | null }>;
-  messages: Array<{ id: string; senderUserId?: string | null; body: string; sentAt: string }>;
+  participants: Array<{ displayName: string; participantType: string; userAccountId?: string | null; isSelf?: boolean; lastReadAt?: string | null }>;
+  messages: Array<{ id: string; senderUserId?: string | null; isMine?: boolean; body: string; sentAt: string }>;
   updatedAt: string;
 }
 
@@ -392,6 +467,7 @@ export interface BackendConversationRow extends Conversation {
 }
 
 interface BackendBootstrapPayload {
+  currentDoctorId?: string;
   doctors: BackendDoctor[];
   workplaces: BackendWorkplace[];
   patients: BackendPatient[];
@@ -405,6 +481,9 @@ interface BackendBootstrapPayload {
   vitals: BackendVitalSet[];
   staff: BackendStaff[];
   notifications: BackendNotification[];
+  tasks: BackendTask[];
+  admissions: BackendAdmission[];
+  encounters: BackendEncounter[];
 }
 
 export interface BackendClinicServiceRow {
@@ -457,6 +536,34 @@ function toFrontendPatientFromLaboratoryPatient(patient: BackendLaboratoryPatien
     bloodGroup: "-",
     allergies: [],
     conditions: [],
+    lastVisit: "Backend",
+    tags: ["New"],
+  };
+}
+
+function toFrontendPatient(patient: BackendPatient): Patient {
+  const workplaces = patient.workplaces ?? patient.patient_workplaces ?? [];
+  const allergies = patient.allergies ?? patient.patient_allergies ?? [];
+  const conditions = patient.conditions ?? patient.patient_conditions ?? [];
+  const workplace = workplaces[0];
+  return {
+    id: patient.id,
+    mrn: workplace?.localMrn ?? patient.id.slice(0, 8),
+    name: patient.fullName,
+    age: ageFromBirthDate(patient.dateOfBirth),
+    gender: frontendGender(patient.gender),
+    phone: patient.phone ?? "Not added",
+    avatarInitials: initials(patient.fullName),
+    primaryDoctorId: patient.primaryDoctorId ?? "",
+    clinicId: workplace?.workplaceId,
+    workContexts: ["clinic"],
+    bloodGroup: patient.bloodGroup ?? "-",
+    allergies: allergies.map((allergy) => ({
+      substance: allergy.substance,
+      severity: allergy.severity === "SEVERE" ? "Severe" : allergy.severity === "MODERATE" ? "Moderate" : "Mild",
+      reaction: allergy.reaction ?? "",
+    })),
+    conditions: conditions.map((condition) => condition.name),
     lastVisit: "Backend",
     tags: ["New"],
   };
@@ -586,8 +693,24 @@ function formatDate(value: string) {
   return value.slice(0, 10);
 }
 
+function formatLocalDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return formatDate(value);
+
+  return [parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate()]
+    .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
+    .join("-");
+}
+
 function formatTime24(value: string) {
-  return value.slice(11, 16);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value.slice(11, 16);
+
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(parsed);
 }
 
 function formatTime(value: string) {
@@ -595,7 +718,6 @@ function formatTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
-    timeZone: "UTC",
   }).format(new Date(value));
 }
 
@@ -615,23 +737,28 @@ function ageFromBirthDate(value?: string | null) {
   return Math.max(age, 0);
 }
 
-export async function getBackendBootstrap(options: { ensureDemo?: boolean } = {}) {
+export async function getBackendBootstrap(options: { ensureDemo?: boolean; workplaceId?: string } = {}) {
   const ensureDemo = options.ensureDemo ? "true" : "false";
-  const payload = await requestJson<{ ok: true; data: BackendBootstrapPayload }>(`/api/bootstrap?ensureDemo=${ensureDemo}`);
+  const requestedWorkplace = isUuid(options.workplaceId) ? `&workplaceId=${options.workplaceId}` : "";
+  const payload = await requestJson<{ ok: true; data: BackendBootstrapPayload }>(`/api/hms/doctor/bootstrap?ensureDemo=${ensureDemo}${requestedWorkplace}`);
   const clinicWorkplace =
-    payload.data.workplaces.find((workplace) => workplace.type === "CLINIC") ?? payload.data.workplaces[0];
+    payload.data.workplaces.find((workplace) => workplace.id === options.workplaceId) ??
+    payload.data.workplaces.find((workplace) => workplace.type === "CLINIC") ??
+    payload.data.workplaces[0];
 
   const doctors: Doctor[] = payload.data.doctors.map((doctor) => ({
     id: doctor.id,
+    userAccountId: doctor.userAccountId ?? undefined,
     name: doctor.fullName,
     specialty: doctor.specialty,
     qualifications: doctor.qualifications ?? "Not added",
     experienceYears: doctor.experienceYears ?? 0,
     avatarInitials: initials(doctor.fullName),
     availability: "Available",
+    workplaceIds: doctor.doctor_workplaces?.map((membership) => membership.workplaceId),
   }));
 
-  const locations: ClinicLocation[] = (clinicWorkplace?.locations ?? []).map((location) => ({
+  const locations: ClinicLocation[] = (clinicWorkplace?.locations ?? clinicWorkplace?.workplace_locations ?? []).map((location) => ({
     id: location.id,
     name: location.name,
     address: `${location.addressLine1}, ${location.city}`,
@@ -645,7 +772,10 @@ export async function getBackendBootstrap(options: { ensureDemo?: boolean } = {}
   });
 
   const patients: Patient[] = payload.data.patients.map((patient) => {
-    const workplaceLink = patient.workplaces.find((item) => item.workplaceId === clinicWorkplace?.id) ?? patient.workplaces[0];
+    const patientWorkplaces = patient.workplaces ?? patient.patient_workplaces ?? [];
+    const patientAllergies = patient.allergies ?? patient.patient_allergies ?? [];
+    const patientConditions = patient.conditions ?? patient.patient_conditions ?? [];
+    const workplaceLink = patientWorkplaces.find((item) => item.workplaceId === clinicWorkplace?.id) ?? patientWorkplaces[0];
 
     return {
       id: patient.id,
@@ -657,14 +787,18 @@ export async function getBackendBootstrap(options: { ensureDemo?: boolean } = {}
       avatarInitials: initials(patient.fullName),
       primaryDoctorId: patient.primaryDoctorId ?? doctors[0]?.id ?? "",
       clinicId: clinicWorkplace?.id,
-      workContexts: ["clinic"],
+      workplaceIds: patientWorkplaces.map((item) => item.workplaceId),
+      workContexts: patientWorkplaces
+        .map((item) => payload.data.workplaces.find((workplace) => workplace.id === item.workplaceId)?.type)
+        .filter((type, index, values) => Boolean(type) && values.indexOf(type) === index)
+        .map((type) => type === "HOSPITAL" ? "hospital" : "clinic") as WorkContext[],
       bloodGroup: patient.bloodGroup ?? "-",
-      allergies: patient.allergies.map((allergy) => ({
+      allergies: patientAllergies.map((allergy) => ({
         substance: allergy.substance,
         severity: allergy.severity === "SEVERE" ? "Severe" : allergy.severity === "MODERATE" ? "Moderate" : "Mild",
         reaction: allergy.reaction ?? "",
       })),
-      conditions: patient.conditions.map((condition) => condition.name),
+      conditions: patientConditions.map((condition) => condition.name),
       lastVisit: "Backend",
       latestVitals: latestVitalsByPatient.get(patient.id),
       tags: ["New"],
@@ -679,11 +813,18 @@ export async function getBackendBootstrap(options: { ensureDemo?: boolean } = {}
   const prescriptions: Prescription[] = payload.data.prescriptions.map(toFrontendPrescription);
   const labOrders: LabOrder[] = payload.data.orders.filter((order) => order.type === "LABORATORY").map(toFrontendLabOrder);
   const radiologyOrders: RadiologyOrder[] = payload.data.orders.filter((order) => order.type === "RADIOLOGY").map(toFrontendRadiologyOrder);
-  const followUps: FollowUp[] = payload.data.followUps.map(toFrontendFollowUp);
+  const followUps: FollowUp[] = payload.data.followUps.map((followUp) => {
+    const workplace = payload.data.workplaces.find((item) => item.id === followUp.workplaceId);
+    return toFrontendFollowUp(followUp, workplace?.type === "HOSPITAL" ? "hospital" : "clinic");
+  });
   const staff: StaffMember[] = payload.data.staff.map(toFrontendStaff);
   const alerts: ClinicalAlert[] = payload.data.notifications.map(toFrontendAlert);
+  const tasks: DoctorTaskItem[] = payload.data.tasks.map(toFrontendTask);
+  const admissions: HospitalWorkItem[] = payload.data.admissions.map(toFrontendAdmission);
+  const consultationNotes: ConsultationNote[] = payload.data.encounters.map(toFrontendConsultationNote);
 
   return {
+    currentDoctorId: payload.data.currentDoctorId,
     workplaceId: clinicWorkplace?.id,
     doctors,
     workplaces,
@@ -699,11 +840,15 @@ export async function getBackendBootstrap(options: { ensureDemo?: boolean } = {}
     followUps,
     staff,
     alerts,
+    tasks,
+    admissions,
+    consultationNotes,
   };
 }
 
 function toFrontendWorkplace(workplace: BackendWorkplace): Workplace {
-  const primaryLocation = workplace.locations.find((location) => location.isPrimary) ?? workplace.locations[0];
+  const locations = workplace.locations ?? workplace.workplace_locations ?? [];
+  const primaryLocation = locations.find((location) => location.isPrimary) ?? locations[0];
 
   return {
     id: workplace.id,
@@ -721,9 +866,10 @@ function toFrontendAppointment(appointment: BackendAppointment): Appointment {
     id: appointment.id,
     patientId: appointment.patientId,
     doctorId: appointment.doctorId,
+    workplaceId: appointment.workplaceId,
     locationId: appointment.locationId ?? undefined,
     workContext: "clinic",
-    date: formatDate(appointment.scheduledAt),
+    date: formatLocalDate(appointment.scheduledAt),
     time: formatTime(appointment.scheduledAt),
     durationMins: appointment.durationMinutes,
     type: frontendAppointmentType(appointment.mode),
@@ -735,8 +881,9 @@ function toFrontendAppointment(appointment: BackendAppointment): Appointment {
 function toFrontendShift(shift: BackendShift): DoctorShift {
   return {
     id: shift.id,
+    doctorId: shift.doctorId,
     workplaceId: shift.workplaceId,
-    date: formatDate(shift.startsAt),
+    date: formatLocalDate(shift.startsAt),
     startTime: formatTime24(shift.startsAt),
     endTime: formatTime24(shift.endsAt),
     shiftType: frontendShiftType(shift.shiftType),
@@ -768,7 +915,8 @@ function toFrontendDiagnosis(diagnosis: BackendDiagnosis): DiagnosisEntry {
     description: diagnosis.description,
     diagnosedOn: formatDate(diagnosis.diagnosedAt),
     status: frontendDiagnosisStatus(diagnosis.status),
-    doctorId: "",
+    doctorId: diagnosis.encounters?.doctorId ?? "",
+    workplaceId: diagnosis.encounters?.workplaceId,
     workContext: "clinic",
   };
 }
@@ -789,6 +937,7 @@ function toFrontendPrescription(prescription: BackendPrescription): Prescription
     })),
     advice: prescription.advice ?? "",
     status: frontendPrescriptionStatus(prescription.status),
+    workplaceId: prescription.workplaceId,
     workContext: "clinic",
   };
 }
@@ -806,6 +955,8 @@ function toFrontendLabOrder(order: BackendOrder): LabOrder {
         ? order.source
         : "Internal",
     priority: frontendOrderPriority(order.priority),
+    workplaceId: order.workplaceId,
+    report: order.reports ?? undefined,
     workContext: "clinic",
   };
 }
@@ -823,11 +974,12 @@ function toFrontendRadiologyOrder(order: BackendOrder): RadiologyOrder {
     orderedOn: formatDate(order.orderedAt),
     status: frontendOrderStatus(order.status),
     priority: frontendOrderPriority(order.priority),
+    workplaceId: order.workplaceId,
     workContext: "clinic",
   };
 }
 
-function toFrontendFollowUp(followUp: BackendFollowUp): FollowUp {
+function toFrontendFollowUp(followUp: BackendFollowUp, workContext: WorkContext = "clinic"): FollowUp {
   return {
     id: followUp.id,
     patientId: followUp.patientId,
@@ -835,6 +987,64 @@ function toFrontendFollowUp(followUp: BackendFollowUp): FollowUp {
     dueDate: followUp.dueAt ? formatDate(followUp.dueAt) : "",
     reason: followUp.reason,
     status: frontendFollowUpStatus(followUp.status, followUp.dueAt),
+    workplaceId: followUp.workplaceId,
+    workContext,
+  };
+}
+
+function toFrontendTask(task: BackendTask): DoctorTaskItem {
+  const dueAt = task.dueAt ? new Date(task.dueAt) : undefined;
+  const isDue = !dueAt || dueAt.getTime() <= Date.now();
+  const status = task.status === "COMPLETED" || task.status === "CANCELLED"
+    ? "completed"
+    : task.priority === "CRITICAL" || (task.priority === "HIGH" && isDue)
+      ? "urgent"
+      : isDue
+        ? "today"
+        : "upcoming";
+  return {
+    id: task.id,
+    appointmentId: task.appointmentId ?? undefined,
+    kind: "task",
+    title: task.title,
+    patientId: task.patientId ?? undefined,
+    workplaceId: task.workplaceId ?? "",
+    source: task.description?.split(" - ")[0] ?? "Clinical task",
+    assignedBy: task.task_assignees?.[0]?.user_accounts?.email ?? "Care team",
+    dueTime: dueAt ? formatTime(dueAt.toISOString()) : "No due date",
+    priority: task.priority === "CRITICAL" ? "Critical" : task.priority === "HIGH" ? "High" : task.priority === "LOW" ? "Low" : "Medium",
+    status,
+  };
+}
+
+function toFrontendAdmission(admission: BackendAdmission): HospitalWorkItem {
+  const diagnosis = admission.encounters?.diagnoses?.[0]?.description ?? admission.encounters?.assessment ?? "Active admission";
+  return {
+    id: admission.id,
+    admissionId: admission.id,
+    encounterId: admission.encounterId,
+    patientId: admission.patientId,
+    workplaceId: admission.workplaceId,
+    bed: admission.bed?.code ?? "-",
+    diagnosis,
+    priority: "Medium",
+    reasonAssigned: admission.doctorCleared ? "Doctor clearance completed" : "Active inpatient admission",
+    status: admission.doctorCleared ? "completed" : "assigned",
+  };
+}
+
+function toFrontendConsultationNote(encounter: BackendEncounter): ConsultationNote {
+  return {
+    id: encounter.id,
+    patientId: encounter.patientId,
+    doctorId: encounter.doctorId,
+    date: formatDate(encounter.createdAt),
+    chiefComplaint: encounter.chiefComplaint ?? "Consultation",
+    symptoms: encounter.history ? encounter.history.split(/\n|,\s*/).map((item) => item.trim()).filter(Boolean) : [],
+    observations: encounter.treatmentPlan ?? "",
+    diagnosis: encounter.assessment ?? "",
+    plan: encounter.treatmentPlan ?? "",
+    status: encounter.status === "CONSULTATION_COMPLETED" || encounter.status === "CLOSED" ? "Finalized" : "Draft",
     workContext: "clinic",
   };
 }
@@ -855,13 +1065,24 @@ function toFrontendVitals(vitals: BackendVitalSet): Vitals {
 }
 
 function toFrontendStaff(staff: BackendStaff): StaffMember {
-  const role = staff.role as StaffMember["role"];
+  const roleMap: Record<string, StaffMember["role"]> = {
+    RECEPTIONIST: "Receptionist",
+    NURSE: "Nurse",
+    BILLING: "Assistant",
+    PHARMACIST: "Lab/Pharmacy User",
+    TECHNICIAN: "Lab/Pharmacy User",
+    SUPPORT: "Assistant",
+  };
+  const role = roleMap[staff.role] ?? staff.role as StaffMember["role"];
+  const memberships = staff.memberships ?? staff.staff_workplaces ?? [];
 
   return {
     id: staff.id,
+    userAccountId: staff.userAccountId ?? undefined,
     name: staff.fullName,
     role: ["Receptionist", "Nurse", "Assistant", "Lab/Pharmacy User"].includes(role) ? role : "Assistant",
     status: staff.status === "PENDING" ? "Invited" : staff.status === "SUSPENDED" ? "Suspended" : "Active",
+    workplaceIds: memberships.map((membership) => membership.workplaceId),
   };
 }
 
@@ -880,8 +1101,9 @@ function toFrontendAlert(notification: BackendNotification): ClinicalAlert {
 
 function toFrontendConversation(conversation: BackendConversation): BackendConversationRow {
   const otherParticipant =
-    conversation.participants.find((participant) => participant.participantType !== "Doctor") ??
-    conversation.participants[0];
+    conversation.participants.find((participant) => participant.isSelf === false) ??
+    conversation.participants.find((participant) => !participant.isSelf && participant.participantType !== "Doctor") ??
+    conversation.participants.find((participant) => !participant.isSelf);
   const lastMessage = conversation.messages[conversation.messages.length - 1];
 
   return {
@@ -902,7 +1124,7 @@ function toFrontendConversation(conversation: BackendConversation): BackendConve
     unread: 0,
     messages: conversation.messages.map((message) => ({
       id: message.id,
-      from: message.senderUserId ? "me" : "them",
+      from: message.isMine || (!("isMine" in message) && Boolean(message.senderUserId)) ? "me" : "them",
       text: message.body,
       time: relativeTime(message.sentAt),
     })),
@@ -925,7 +1147,7 @@ export async function createBackendAppointment(input: {
   requireUuid(input.workplaceId, "Workplace id");
   if (input.locationId) requireUuid(input.locationId, "Location id");
 
-  const payload = await requestJson<{ ok: true; data: BackendAppointment }>("/api/appointments", {
+  const payload = await requestJson<{ ok: true; data: BackendAppointment }>("/api/hms/appointments", {
     method: "POST",
     body: JSON.stringify({
       patientId: input.patientId,
@@ -954,19 +1176,22 @@ export async function createBackendPatient(input: {
   workplaceId?: string;
   localMrn?: string;
 }) {
-  const payload = await requestJson<{ data: BackendLaboratoryPatient }>("/api/patients", {
+  const payload = await requestJson<{ data: BackendPatient }>("/api/hms/patients", {
     method: "POST",
     body: JSON.stringify({
-      mrn: input.localMrn || input.qlynoId,
-      name: input.fullName,
+      qlynoId: input.qlynoId,
+      fullName: input.fullName,
+      gender: input.gender,
       dateOfBirth: input.dateOfBirth,
-      sex: backendLaboratorySex(input.gender),
-      contact: input.phone || "Not added",
-      source: "WALK_IN",
-      branchOrWard: "Provider portal",
+      phone: input.phone || "Not added",
+      email: input.email,
+      bloodGroup: input.bloodGroup,
+      primaryDoctorId: isUuid(input.primaryDoctorId) ? input.primaryDoctorId : undefined,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+      localMrn: input.localMrn || input.qlynoId,
     }),
   });
-  return toFrontendPatientFromLaboratoryPatient(payload.data);
+  return toFrontendPatient(payload.data);
 }
 
 export async function updateBackendPatient(
@@ -979,29 +1204,34 @@ export async function updateBackendPatient(
     primaryDoctorId?: string;
   }
 ) {
-  const payload = await requestJson<{ data: BackendLaboratoryPatient }>(`/api/patients/${id}`, {
+  const payload = await requestJson<{ data: BackendPatient }>(`/api/hms/patients/${id}`, {
     method: "PATCH",
     body: JSON.stringify({
-      name: input.fullName,
-      sex: input.gender ? backendLaboratorySex(input.gender) : undefined,
-      contact: input.phone || undefined,
+      fullName: input.fullName,
+      gender: input.gender,
+      phone: input.phone || undefined,
+      bloodGroup: input.bloodGroup,
+      primaryDoctorId: isUuid(input.primaryDoctorId) ? input.primaryDoctorId : undefined,
     }),
   });
-  return toFrontendPatientFromLaboratoryPatient(payload.data);
+  return toFrontendPatient(payload.data);
 }
 
 export async function deleteBackendPatient(id: string) {
-  return requestJson(`/api/patients/${id}`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/patients/${id}`, {
     method: "DELETE",
+    body: JSON.stringify({ workplaceId: bootstrap.workplaceId }),
   });
 }
 
-export async function updateBackendAppointmentStatus(id: string, status: AppointmentStatus) {
+export async function updateBackendAppointmentStatus(id: string, status: AppointmentStatus, workplaceId?: string) {
   requireUuid(id, "Appointment id");
 
-  return requestJson(`/api/appointments/${id}/status`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/appointments/${id}/status`, {
     method: "PATCH",
-    body: JSON.stringify({ status: appointmentStatus(status) }),
+    body: JSON.stringify({ status: appointmentStatus(status), workplaceId: isUuid(workplaceId) ? workplaceId : bootstrap.workplaceId }),
   });
 }
 
@@ -1025,7 +1255,7 @@ export async function updateBackendAppointment(
   requireUuid(input.workplaceId, "Workplace id");
   if (input.locationId) requireUuid(input.locationId, "Location id");
 
-  const payload = await requestJson<{ ok: true; data: BackendAppointment }>(`/api/appointments/${id}`, {
+  const payload = await requestJson<{ ok: true; data: BackendAppointment }>(`/api/hms/appointments/${id}`, {
     method: "PATCH",
     body: JSON.stringify({
       patientId: input.patientId,
@@ -1045,8 +1275,10 @@ export async function updateBackendAppointment(
 export async function deleteBackendAppointment(id: string) {
   requireUuid(id, "Appointment id");
 
-  return requestJson(`/api/appointments/${id}`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/appointments/${id}`, {
     method: "DELETE",
+    body: JSON.stringify({ workplaceId: bootstrap.workplaceId }),
   });
 }
 
@@ -1067,7 +1299,7 @@ export async function createBackendShift(input: {
   requireUuid(input.doctorId, "Doctor id");
   requireUuid(input.workplaceId, "Workplace id");
 
-  const payload = await requestJson<{ ok: true; data: BackendShift }>("/api/shifts", {
+  const payload = await requestJson<{ ok: true; data: BackendShift }>("/api/hms/shifts", {
     method: "POST",
     body: JSON.stringify({
       doctorId: input.doctorId,
@@ -1087,12 +1319,13 @@ export async function createBackendShift(input: {
   return toFrontendShift(payload.data);
 }
 
-export async function updateBackendShiftStatus(id: string, status: string) {
+export async function updateBackendShiftStatus(id: string, status: string, workplaceId?: string) {
   requireUuid(id, "Shift id");
 
-  return requestJson(`/api/shifts/${id}/status`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/shifts/${id}/status`, {
     method: "PATCH",
-    body: JSON.stringify({ status: status.toUpperCase() }),
+    body: JSON.stringify({ status: status.toUpperCase(), workplaceId: isUuid(workplaceId) ? workplaceId : bootstrap.workplaceId }),
   });
 }
 
@@ -1106,23 +1339,25 @@ export async function createBackendPrescription(input: {
   requireUuid(input.patientId, "Patient id");
   requireUuid(input.doctorId, "Doctor id");
   requireUuid(input.workplaceId, "Workplace id");
+  const advice = input.advice?.trim() || undefined;
+  const medicines = input.medicines.map((medicine) => ({
+    medicineName: medicine.name.trim(),
+    strength: medicine.dosage.trim() || undefined,
+    dose: medicine.dosage.trim(),
+    frequency: medicine.frequency.trim(),
+    duration: medicine.duration.trim(),
+    instructions: medicine.instructions.trim() || undefined,
+    quantity: 1,
+  }));
 
-  const payload = await requestJson<{ ok: true; data: BackendPrescription }>("/api/prescriptions", {
+  const payload = await requestJson<{ ok: true; data: BackendPrescription }>("/api/hms/prescriptions", {
     method: "POST",
     body: JSON.stringify({
       patientId: input.patientId,
       doctorId: input.doctorId,
       workplaceId: input.workplaceId,
-      advice: input.advice,
-      status: "ACTIVE",
-      medicines: input.medicines.map((medicine) => ({
-        medicineName: medicine.name,
-        strength: medicine.dosage,
-        dose: medicine.dosage,
-        frequency: medicine.frequency,
-        duration: medicine.duration,
-        instructions: medicine.instructions,
-      })),
+      ...(advice ? { advice } : {}),
+      medicines,
     }),
   });
 
@@ -1142,7 +1377,7 @@ export async function createBackendOrder(input: {
   requireUuid(input.doctorId, "Doctor id");
   requireUuid(input.workplaceId, "Workplace id");
 
-  const payload = await requestJson<{ ok: true; data: BackendOrder }>("/api/orders", {
+  const payload = await requestJson<{ ok: true; data: BackendOrder }>("/api/hms/investigations", {
     method: "POST",
     body: JSON.stringify({
       patientId: input.patientId,
@@ -1152,6 +1387,7 @@ export async function createBackendOrder(input: {
       title: input.title,
       priority: input.priority === "Urgent" ? "URGENT" : "ROUTINE",
       source: input.source,
+      encounterId: undefined,
     }),
   });
 
@@ -1167,7 +1403,7 @@ export async function createBackendClinicService(input: {
 }) {
   requireUuid(input.workplaceId, "Workplace id");
 
-  const payload = await requestJson<{ ok: true; data: BackendClinicService }>("/api/clinic/services", {
+  const payload = await requestJson<{ ok: true; data: BackendClinicService }>("/api/hms/services", {
     method: "POST",
     body: JSON.stringify({
       ...input,
@@ -1189,7 +1425,7 @@ export async function updateBackendClinicService(
 ) {
   requireUuid(id, "Service id");
 
-  const payload = await requestJson<{ ok: true; data: BackendClinicService }>(`/api/clinic/services/${id}`, {
+  const payload = await requestJson<{ ok: true; data: BackendClinicService }>(`/api/hms/services/${id}`, {
     method: "PATCH",
     body: JSON.stringify({
       ...input,
@@ -1203,19 +1439,21 @@ export async function updateBackendClinicService(
 export async function deleteBackendClinicService(id: string) {
   requireUuid(id, "Service id");
 
-  return requestJson(`/api/clinic/services/${id}`, {
+  return requestJson(`/api/hms/services/${id}`, {
     method: "DELETE",
   });
 }
 
 export async function createBackendDiagnosis(input: {
   patientId: string;
+  workplaceId: string;
   icdCode?: string;
   description: string;
 }) {
   requireUuid(input.patientId, "Patient id");
+  requireUuid(input.workplaceId, "Workplace id");
 
-  const payload = await requestJson<{ ok: true; data: BackendDiagnosis }>("/api/diagnoses", {
+  const payload = await requestJson<{ ok: true; data: BackendDiagnosis }>("/api/hms/diagnoses", {
     method: "POST",
     body: JSON.stringify({
       ...input,
@@ -1238,7 +1476,7 @@ export async function createBackendFollowUp(input: {
   requireUuid(input.doctorId, "Doctor id");
   requireUuid(input.workplaceId, "Workplace id");
 
-  const payload = await requestJson<{ ok: true; data: BackendFollowUp }>("/api/follow-ups", {
+  const payload = await requestJson<{ ok: true; data: BackendFollowUp }>("/api/hms/follow-ups", {
     method: "POST",
     body: JSON.stringify({
       patientId: input.patientId,
@@ -1252,7 +1490,7 @@ export async function createBackendFollowUp(input: {
   return toFrontendFollowUp(payload.data);
 }
 
-export async function updateBackendFollowUpStatus(id: string, status: FollowUp["status"]) {
+export async function updateBackendFollowUpStatus(id: string, status: FollowUp["status"], workplaceId?: string) {
   requireUuid(id, "Follow-up id");
 
   const map: Record<FollowUp["status"], string> = {
@@ -1262,40 +1500,45 @@ export async function updateBackendFollowUpStatus(id: string, status: FollowUp["
     Completed: "COMPLETED",
   };
 
-  return requestJson(`/api/follow-ups/${id}/status`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/follow-ups/${id}/status`, {
     method: "PATCH",
-    body: JSON.stringify({ status: map[status] }),
+    body: JSON.stringify({ status: map[status], workplaceId: isUuid(workplaceId) ? workplaceId : bootstrap.workplaceId }),
   });
 }
 
 export async function acknowledgeBackendAlert(id: string) {
   requireUuid(id, "Alert id");
+  const bootstrap = await getBackendBootstrap();
 
-  return requestJson(`/api/notifications/${id}/read`, {
-    method: "PATCH",
+  return requestJson(`/api/hms/notifications/${id}/read`, {
+    method: "POST",
+    body: JSON.stringify({ workplaceId: bootstrap.workplaceId }),
   });
 }
 
 export async function getBackendConversations(workplaceId?: string) {
   const query = isUuid(workplaceId) ? `?workplaceId=${workplaceId}` : "";
-  const payload = await requestJson<{ ok: true; data: BackendConversation[] }>(`/api/conversations${query}`);
+  const payload = await requestJson<{ ok: true; data: BackendConversation[] }>(`/api/hms/conversations${query}`);
   return payload.data.map(toFrontendConversation);
 }
 
 export async function sendBackendMessage(input: {
   conversationId?: string;
   workplaceId?: string;
+  recipientUserAccountId?: string;
   title?: string;
   body: string;
 }) {
   const payload = await requestJson<{
     ok: true;
     data: { conversationId: string; message: { id: string; body: string; sentAt: string } };
-  }>("/api/conversations/messages", {
+  }>("/api/hms/doctor/messages", {
     method: "POST",
     body: JSON.stringify({
       conversationId: isUuid(input.conversationId) ? input.conversationId : undefined,
       workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+      recipientUserAccountId: isUuid(input.recipientUserAccountId) ? input.recipientUserAccountId : undefined,
       title: input.title,
       body: input.body,
     }),
@@ -1312,28 +1555,49 @@ export async function sendBackendMessage(input: {
   };
 }
 
-export async function saveBackendState(scope: string, entityId: string, value: unknown) {
-  return requestJson("/api/state", {
+export async function saveBackendState(scope: string, entityId: string, value: unknown, workplaceId?: string) {
+  return requestJson("/api/hms/doctor/state", {
     method: "POST",
-    body: JSON.stringify({ scope, entityId, value }),
+    body: JSON.stringify({ scope, entityId, value, workplaceId: isUuid(workplaceId) ? workplaceId : undefined }),
   });
 }
 
-export async function getBackendState<T>(scope: string, entityId: string): Promise<T | null> {
+export async function getBackendState<T>(scope: string, entityId: string, workplaceId?: string): Promise<T | null> {
+  const query = isUuid(workplaceId) ? `?workplaceId=${workplaceId}` : "";
   const payload = await requestJson<{ ok: true; data: { value?: T } | null }>(
-    `/api/state/${encodeURIComponent(scope)}/${encodeURIComponent(entityId)}`
+    `/api/hms/doctor/state/${encodeURIComponent(scope)}/${encodeURIComponent(entityId)}${query}`
   );
 
   return payload.data?.value ?? null;
 }
 
+export async function updateBackendTaskStatus(id: string, workplaceId: string, status: "IN_PROGRESS" | "COMPLETED" | "CANCELLED") {
+  requireUuid(id, "Task id");
+  requireUuid(workplaceId, "Workplace id");
+  return requestJson(`/api/hms/doctor/tasks/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ workplaceId, status }),
+  });
+}
+
+export async function completeBackendAdmission(admissionId: string, workplaceId: string, dischargeSummary: string) {
+  requireUuid(admissionId, "Admission id");
+  requireUuid(workplaceId, "Workplace id");
+  const payload = await requestJson<{ data: BackendAdmission }>(`/api/hms/admissions/${admissionId}/doctor-clearance`, {
+    method: "POST",
+    body: JSON.stringify({ workplaceId, dischargeSummary }),
+  });
+  return payload.data;
+}
+
 export type ReceptionistGender = "Male" | "Female" | "Other";
-export type ReceptionistPatientStatus = "Active" | "Discharged" | "New";
+export type ReceptionistPatientStatus = "Active" | "Deactivated" | "Discharged" | "New";
 export type ReceptionistAppointmentStatus = "Confirmed" | "Pending" | "Cancelled" | "Completed";
 export type ReceptionistQueueStatus = "Waiting" | "In Consultation" | "Completed";
 export type ReceptionistVisitorStatus = "Checked In" | "Checked Out";
 export type ReceptionistAdmissionStatus = "Admitted" | "Awaiting Bed" | "Discharged";
 export type ReceptionistNotificationChannel = "SMS" | "Email" | "System" | "Call";
+export type ReceptionistContextType = "solo-doctor" | "clinic" | "hospital";
 
 export interface BackendReceptionistDoctor {
   name: string;
@@ -1356,6 +1620,25 @@ export interface BackendReceptionistPatient {
   status: ReceptionistPatientStatus;
 }
 
+export interface BackendReceptionistPatientDetails {
+  id: string;
+  uhid: string;
+  name: string;
+  age: number;
+  dateOfBirth: string | null;
+  gender: ReceptionistGender;
+  phone: string;
+  email: string;
+  bloodGroup: string;
+  department: string;
+  address: string;
+  notes: string;
+  workplaceId: string;
+  status: "Active" | "Deactivated";
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BackendReceptionistAppointment {
   id: string;
   backendId?: string;
@@ -1369,6 +1652,35 @@ export interface BackendReceptionistAppointment {
   date: string;
   time: string;
   status: ReceptionistAppointmentStatus;
+}
+
+export interface BackendReceptionistAppointmentSlip {
+  id: string;
+  patientId: string;
+  doctorId: string;
+  workplaceId: string;
+  organizationName: string;
+  patient: {
+    id: string;
+    name: string;
+    uhid: string;
+    age: number;
+    gender: ReceptionistGender;
+    phone: string;
+  };
+  doctor: {
+    id: string;
+    name: string;
+    department: string;
+  };
+  date: string;
+  time: string;
+  scheduledAt: string;
+  status: string;
+  mode: string;
+  reason?: string | null;
+  checkedInAt?: string | null;
+  generatedAt: string;
 }
 
 export interface BackendReceptionistQueueEntry {
@@ -1444,8 +1756,104 @@ export interface BackendReceptionistNotification {
   recipient?: string;
 }
 
+export interface BackendReceptionistContext {
+  type: ReceptionistContextType;
+  label: string;
+  organizationName: string;
+  workplaceId: string;
+  timeZone: string;
+  ownerLabel: string;
+  scopeLabel: string;
+  allowedModules: string[];
+  permissions: Record<string, boolean>;
+  boundaries: string[];
+}
+
+export interface BackendReceptionistSettings {
+  profile?: {
+    displayName: string;
+    counterNumber: string;
+    defaultDepartmentView: string;
+  } | null;
+  printers?: {
+    tokenPrinter: string;
+    visitorPassPrinter: string;
+    testPrint?: boolean;
+  } | null;
+  security?: {
+    sessionTimeoutMinutes: number;
+    signOutAllSessions?: boolean;
+  } | null;
+  notificationPreferences?: Record<string, boolean> | null;
+  savedAt?: string;
+}
+
+export interface BackendReceptionistFollowUp {
+  id: string;
+  patientId?: string;
+  doctorId?: string;
+  workplaceId?: string;
+  patient: string;
+  uhid: string;
+  doctor: string;
+  dueAt: string;
+  reason: string;
+  status: string;
+  owner: string;
+}
+
+export interface BackendReceptionistTask {
+  id: string;
+  patientId?: string;
+  workplaceId?: string;
+  patient: string;
+  uhid: string;
+  title: string;
+  description: string;
+  dueAt: string;
+  status: string;
+  priority: string;
+}
+
+export interface BackendReceptionistCoordinationRow {
+  id: string;
+  patientId?: string;
+  workplaceId?: string;
+  patient: string;
+  uhid: string;
+  owner: string;
+  type: string;
+  title: string;
+  status: string;
+  date: string;
+  boundary: string;
+}
+
+export interface BackendReceptionistDocument {
+  id: string;
+  patientId?: string;
+  workplaceId?: string;
+  patient: string;
+  uhid: string;
+  title: string;
+  category: string;
+  uploadedAt: string;
+  status: string;
+}
+
+export interface BackendReceptionistAuditTrail {
+  id: string;
+  action: string;
+  detail: string;
+  actor: string;
+  time: string;
+  workplaceId?: string;
+}
+
 export interface BackendReceptionistPayload {
   workplaceId?: string;
+  settings?: BackendReceptionistSettings | null;
+  context: BackendReceptionistContext;
   doctors: BackendReceptionistDoctor[];
   wards: string[];
   patients: BackendReceptionistPatient[];
@@ -1456,6 +1864,11 @@ export interface BackendReceptionistPayload {
   emergencyCases: BackendReceptionistEmergencyCase[];
   billingRows: BackendReceptionistBillingRow[];
   notifications: BackendReceptionistNotification[];
+  followUps: BackendReceptionistFollowUp[];
+  tasks: BackendReceptionistTask[];
+  coordination: BackendReceptionistCoordinationRow[];
+  documents: BackendReceptionistDocument[];
+  auditTrail: BackendReceptionistAuditTrail[];
 }
 
 function receptionistBackendGender(gender: ReceptionistGender) {
@@ -1487,6 +1900,15 @@ export async function getBackendReceptionistBootstrap(workplaceId?: string) {
   return payload.data;
 }
 
+export async function getBackendReceptionistAppointmentSlip(id: string, workplaceId?: string) {
+  requireUuid(id, "Appointment id");
+  const query = isUuid(workplaceId) ? `?workplaceId=${workplaceId}` : "";
+  const payload = await requestJson<{ data: BackendReceptionistAppointmentSlip }>(
+    `/api/hms/receptionist/appointments/${id}/slip${query}`
+  );
+  return payload.data;
+}
+
 export async function createBackendReceptionistPatient(input: {
   qlynoId: string;
   fullName: string;
@@ -1499,6 +1921,8 @@ export async function createBackendReceptionistPatient(input: {
   workplaceId?: string;
   localMrn: string;
   department?: string;
+  address?: string;
+  notes?: string;
 }) {
   const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/patients", {
     method: "POST",
@@ -1508,6 +1932,56 @@ export async function createBackendReceptionistPatient(input: {
       primaryDoctorId: isUuid(input.primaryDoctorId) ? input.primaryDoctorId : undefined,
       workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
     }),
+  });
+  return payload.data;
+}
+
+export async function getBackendReceptionistPatientDetails(id: string, workplaceId?: string) {
+  requireUuid(id, "Patient id");
+  const query = isUuid(workplaceId) ? `?workplaceId=${workplaceId}` : "";
+  const payload = await requestJson<{ data: BackendReceptionistPatientDetails }>(
+    `/api/hms/receptionist/patients/${id}${query}`
+  );
+  return payload.data;
+}
+
+export async function updateBackendReceptionistPatient(
+  id: string,
+  input: {
+    workplaceId?: string;
+    fullName: string;
+    gender: ReceptionistGender;
+    dateOfBirth?: string | null;
+    phone: string;
+    email?: string;
+    bloodGroup?: string;
+    department?: string;
+    address?: string;
+    notes?: string;
+  }
+) {
+  requireUuid(id, "Patient id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>(`/api/hms/receptionist/patients/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...input,
+      gender: receptionistBackendGender(input.gender),
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+      email: input.email || "",
+      bloodGroup: input.bloodGroup || undefined,
+      department: input.department || undefined,
+      address: input.address ?? "",
+      notes: input.notes ?? "",
+    }),
+  });
+  return payload.data;
+}
+
+export async function deactivateBackendReceptionistPatient(id: string, workplaceId?: string) {
+  requireUuid(id, "Patient id");
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>(`/api/hms/receptionist/patients/${id}/deactivate`, {
+    method: "POST",
+    body: JSON.stringify({ workplaceId: isUuid(workplaceId) ? workplaceId : undefined }),
   });
   return payload.data;
 }
@@ -1671,8 +2145,60 @@ export async function createBackendReceptionistNotification(input: {
   return payload.data;
 }
 
+export async function createBackendReceptionistAction(input: {
+  action: "PATIENT_CALLED" | "OPD_STATUS_UPDATED" | "CONSULTATION_SLIP_PRINTED" | "TOKEN_SLIP_PRINTED" | "VISITOR_PASS_PRINTED" | "PROFILE_SAVED" | "PRINTER_TESTED";
+  subject: string;
+  detail: string;
+  workplaceId?: string;
+  relatedType?: string;
+  relatedId?: string;
+}) {
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/actions", {
+    method: "POST",
+    body: JSON.stringify({
+      ...input,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+    }),
+  });
+  return payload.data;
+}
+
+export async function generateBackendReceptionistReport(input: {
+  type: "Patient registrations" | "Appointments" | "Admissions" | "Cancellations" | "Overall reception activity";
+  range: "Today" | "This week" | "This month" | "Custom range";
+  startDate: string;
+  endDate: string;
+  workplaceId?: string;
+}) {
+  const payload = await requestJson<{ data: BackendReceptionistPayload; report: Record<string, number> }>("/api/hms/receptionist/reports", {
+    method: "POST",
+    body: JSON.stringify({
+      ...input,
+      startDate: `${input.startDate}T00:00:00.000Z`,
+      endDate: `${input.endDate}T00:00:00.000Z`,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+    }),
+  });
+  return payload;
+}
+
+export async function saveBackendReceptionistSettings(input: BackendReceptionistSettings & { workplaceId?: string }) {
+  const payload = await requestJson<{ data: BackendReceptionistPayload }>("/api/hms/receptionist/settings", {
+    method: "POST",
+    body: JSON.stringify({
+      profile: input.profile ?? undefined,
+      printers: input.printers ?? undefined,
+      security: input.security ?? undefined,
+      notificationPreferences: input.notificationPreferences ?? undefined,
+      workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
+    }),
+  });
+  return payload.data;
+}
+
 export async function createBackendVitals(input: {
   patientId: string;
+  workplaceId: string;
   bp: string;
   pulse: number;
   temp?: number;
@@ -1681,12 +2207,14 @@ export async function createBackendVitals(input: {
   bmi?: number;
 }) {
   requireUuid(input.patientId, "Patient id");
+  requireUuid(input.workplaceId, "Workplace id");
   const [systolic, diastolic] = input.bp.split("/").map((part) => Number(part.trim()));
 
-  const payload = await requestJson<{ ok: true; data: BackendVitalSet }>("/api/vitals", {
+  const payload = await requestJson<{ ok: true; data: BackendVitalSet }>("/api/hms/vitals", {
     method: "POST",
     body: JSON.stringify({
       patientId: input.patientId,
+      workplaceId: input.workplaceId,
       systolicBp: Number.isFinite(systolic) ? systolic : undefined,
       diastolicBp: Number.isFinite(diastolic) ? diastolic : undefined,
       pulse: input.pulse,
@@ -1707,7 +2235,7 @@ export async function createBackendClinicLocation(input: {
 }) {
   requireUuid(input.workplaceId, "Workplace id");
 
-  const payload = await requestJson<{ ok: true; data: BackendLocation }>("/api/clinic/locations", {
+  const payload = await requestJson<{ ok: true; data: BackendLocation }>("/api/hms/locations", {
     method: "POST",
     body: JSON.stringify({
       workplaceId: input.workplaceId,
@@ -1735,7 +2263,7 @@ export async function updateBackendClinicLocation(
 ) {
   requireUuid(id, "Location id");
 
-  const payload = await requestJson<{ ok: true; data: BackendLocation }>(`/api/clinic/locations/${id}`, {
+  const payload = await requestJson<{ ok: true; data: BackendLocation }>(`/api/hms/locations/${id}`, {
     method: "PATCH",
     body: JSON.stringify({
       name: input.name,
@@ -1756,8 +2284,10 @@ export async function updateBackendClinicLocation(
 export async function deleteBackendClinicLocation(id: string) {
   requireUuid(id, "Location id");
 
-  return requestJson(`/api/clinic/locations/${id}`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/locations/${id}`, {
     method: "DELETE",
+    body: JSON.stringify({ workplaceId: bootstrap.workplaceId }),
   });
 }
 
@@ -1773,7 +2303,7 @@ export async function createBackendClinicDoctor(input: {
     workplaceId: isUuid(input.workplaceId) ? input.workplaceId : undefined,
   };
 
-  const payload = await requestJson<{ ok: true; data: BackendDoctor }>("/api/clinic/doctors", {
+  const payload = await requestJson<{ ok: true; data: BackendDoctor }>("/api/hms/doctors", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -1800,7 +2330,7 @@ export async function updateBackendClinicDoctor(
 ) {
   requireUuid(id, "Doctor id");
 
-  const payload = await requestJson<{ ok: true; data: BackendDoctor }>(`/api/clinic/doctors/${id}`, {
+  const payload = await requestJson<{ ok: true; data: BackendDoctor }>(`/api/hms/doctors/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
@@ -1820,8 +2350,10 @@ export async function deleteBackendClinicDoctor(id: string, workplaceId?: string
   requireUuid(id, "Doctor id");
   const query = isUuid(workplaceId) ? `?workplaceId=${workplaceId}` : "";
 
-  return requestJson(`/api/clinic/doctors/${id}${query}`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/doctors/${id}`, {
     method: "DELETE",
+    body: JSON.stringify({ workplaceId: isUuid(workplaceId) ? workplaceId : bootstrap.workplaceId }),
   });
 }
 
@@ -1832,7 +2364,7 @@ export async function createBackendClinicStaff(input: {
 }) {
   requireUuid(input.workplaceId, "Workplace id");
 
-  const payload = await requestJson<{ ok: true; data: BackendStaff }>("/api/clinic/staff", {
+  const payload = await requestJson<{ ok: true; data: BackendStaff }>("/api/hms/staff", {
     method: "POST",
     body: JSON.stringify({
       workplaceId: input.workplaceId,
@@ -1854,7 +2386,7 @@ export async function updateBackendClinicStaff(
 ) {
   requireUuid(id, "Staff id");
 
-  const payload = await requestJson<{ ok: true; data: BackendStaff }>(`/api/clinic/staff/${id}`, {
+  const payload = await requestJson<{ ok: true; data: BackendStaff }>(`/api/hms/staff/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
@@ -1866,17 +2398,20 @@ export async function deleteBackendClinicStaff(id: string, workplaceId?: string)
   requireUuid(id, "Staff id");
   const query = isUuid(workplaceId) ? `?workplaceId=${workplaceId}` : "";
 
-  return requestJson(`/api/clinic/staff/${id}${query}`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/staff/${id}`, {
     method: "DELETE",
+    body: JSON.stringify({ workplaceId: isUuid(workplaceId) ? workplaceId : bootstrap.workplaceId }),
   });
 }
 
 export async function updateBackendOrderStatus(id: string, status: OrderStatus) {
   requireUuid(id, "Order id");
 
-  return requestJson(`/api/orders/${id}/status`, {
+  const bootstrap = await getBackendBootstrap();
+  return requestJson(`/api/hms/investigations/${id}/status`, {
     method: "PATCH",
-    body: JSON.stringify({ status: orderStatus(status) }),
+    body: JSON.stringify({ status: orderStatus(status), workplaceId: bootstrap.workplaceId }),
   });
 }
 
@@ -1885,7 +2420,9 @@ export async function completeBackendEncounter(input: {
   doctorId: string;
   workplaceId: string;
   appointmentId?: string;
+  encounterId?: string;
   workContext: WorkContext;
+  complete?: boolean;
   chiefComplaint?: string;
   symptoms?: string;
   examination?: string;
@@ -1904,13 +2441,12 @@ export async function completeBackendEncounter(input: {
   requireUuid(input.workplaceId, "Workplace id");
   if (input.appointmentId) requireUuid(input.appointmentId, "Appointment id");
 
-  return requestJson("/api/encounters", {
-    method: "POST",
-    body: JSON.stringify({
+  const body = {
       patientId: input.patientId,
       doctorId: input.doctorId,
       workplaceId: input.workplaceId,
       appointmentId: input.appointmentId,
+      complete: input.complete ?? true,
       type: input.workContext === "hospital" ? "INPATIENT_ROUND" : "NEW_CONSULTATION",
       chiefComplaint: input.chiefComplaint,
       history: input.symptoms,
@@ -1933,6 +2469,27 @@ export async function completeBackendEncounter(input: {
         ...(input.radiologyOrder ? [{ type: "RADIOLOGY", title: input.radiologyOrder, priority: "ROUTINE" }] : []),
       ],
       followUp: input.followUp ? { reason: input.followUp } : undefined,
-    }),
+  };
+
+  if (input.encounterId) {
+    const payload = await requestJson<{ data: { id: string } }>(`/api/hms/encounters/${input.encounterId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        workplaceId: input.workplaceId,
+        history: body.history,
+        examination: body.examination,
+        clinicalNotes: body.clinicalNotes,
+        assessment: body.assessment,
+        treatmentPlan: body.treatmentPlan,
+        complete: input.complete ?? true,
+      }),
+    });
+    return payload.data;
+  }
+
+  const payload = await requestJson<{ data: { id: string } }>("/api/hms/encounters", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
+  return payload.data;
 }

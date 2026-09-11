@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import clsx from "clsx";
 import { Activity, Building2, Check, ChevronsUpDown, Hospital, Stethoscope } from "lucide-react";
-import { doctorWorkspaceNav, clinicOperationsNav, staffPortalNav } from "./nav-config";
+import { doctorWorkspaceNav, clinicOperationsNav } from "./nav-config";
 import { useMode } from "@/lib/mode-context";
 import { currentDoctor, clinic } from "@/lib/mock-data";
 import { AvailabilityDot, Avatar } from "@/components/ui";
@@ -143,10 +143,6 @@ export default function Sidebar() {
           </div>
         )}
 
-        <div>
-          <p className="px-3 mb-1.5 eyebrow">Staff Portals</p>
-          <div className="space-y-0.5">{renderNavItems(staffPortalNav)}</div>
-        </div>
       </nav>
 
       {/* Profile */}

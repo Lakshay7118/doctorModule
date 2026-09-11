@@ -22,7 +22,6 @@ import {
   MapPin,
   ClipboardCheck,
   Hospital,
-  BadgeCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -63,8 +62,4 @@ export const clinicOperationsNav: NavItem[] = [
   { label: "Locations", href: "/clinic/locations", icon: MapPin, moduleNumber: "C6" },
 ];
 
-export const staffPortalNav: NavItem[] = [
-  { label: "Receptionist Portal", href: "/receptionist/dashboard", icon: BadgeCheck, moduleNumber: "S1" },
-];
-
-export const allNavItems: NavItem[] = [...doctorWorkspaceNav, ...clinicOperationsNav, ...staffPortalNav];
+export const allNavItems: NavItem[] = [...doctorWorkspaceNav, ...clinicOperationsNav];

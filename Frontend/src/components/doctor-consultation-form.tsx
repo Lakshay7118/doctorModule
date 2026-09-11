@@ -6,26 +6,37 @@ import { AlertTriangle, CheckCircle2, FilePlus2, FlaskConical, Save, X } from "l
 import { Avatar, Card, Pill, SectionHeading } from "@/components/ui";
 import { patientInWorkContext, patients as defaultPatients } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
+import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import { Patient } from "@/lib/types";
 import { LabOrderIssueModal } from "@/components/lab-order-issue-modal";
 import { PrescriptionIssueModal } from "@/components/prescription-issue-modal";
+import { ApiSyncSkippedError, completeBackendEncounter, getBackendBootstrap } from "@/lib/api-client";
 
 interface ConsultationFormProps {
   patients?: Patient[];
+  appointmentId?: string;
+  workplaceId?: string;
   preselectedPatientId?: string | null;
+  initialComplaint?: string;
   showHeading?: boolean;
   prescriptionMode?: "link" | "modal";
   labOrderMode?: "link" | "modal";
+  onFinalized?: (appointmentId?: string) => void;
 }
 
 export function ConsultationForm({
   patients = defaultPatients,
+  appointmentId,
+  workplaceId,
   preselectedPatientId,
+  initialComplaint = "",
   showHeading = true,
   prescriptionMode = "link",
   labOrderMode = "link",
+  onFinalized,
 }: ConsultationFormProps) {
   const { workContext } = useMode();
+  const { appointments, markAppointmentCompleted } = useDoctorWorkflow();
   const contextPatients = useMemo(
     () => patients.filter((patient) => patientInWorkContext(patient, workContext)),
     [patients, workContext]
@@ -33,17 +44,25 @@ export function ConsultationForm({
   const fallbackPatientId = contextPatients[0]?.id ?? patients[0]?.id ?? "";
 
   const [patientId, setPatientId] = useState(preselectedPatientId ?? fallbackPatientId);
-  const [complaint, setComplaint] = useState("");
+  const [complaint, setComplaint] = useState(initialComplaint);
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const [symptomInput, setSymptomInput] = useState("");
   const [observations, setObservations] = useState("");
   const [diagnosis, setDiagnosis] = useState("");
   const [plan, setPlan] = useState("");
   const [saved, setSaved] = useState<"idle" | "draft" | "final">("idle");
+  const [encounterId, setEncounterId] = useState<string>();
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
   const [labOrderOpen, setLabOrderOpen] = useState(false);
   const [prescriptionOpen, setPrescriptionOpen] = useState(false);
 
   const patient = useMemo(() => contextPatients.find((item) => item.id === patientId), [contextPatients, patientId]);
+  const linkedAppointment = useMemo(
+    () => appointmentId ? appointments.find((appointment) => appointment.id === appointmentId) : undefined,
+    [appointmentId, appointments]
+  );
+  const isCompletedAppointment = linkedAppointment?.status === "Completed" || saved === "final";
 
   useEffect(() => {
     setPatientId((current) => {
@@ -55,10 +74,60 @@ export function ConsultationForm({
     setSaved("idle");
   }, [contextPatients, preselectedPatientId]);
 
+  useEffect(() => {
+    setComplaint((current) => current || initialComplaint);
+  }, [initialComplaint]);
+
   function addSymptom() {
     const symptom = symptomInput.trim();
     if (symptom && !symptoms.includes(symptom)) setSymptoms([...symptoms, symptom]);
     setSymptomInput("");
+  }
+
+  async function saveConsultation(complete: boolean) {
+    if (!patient) return;
+    if (complete && isCompletedAppointment) {
+      setSaved("final");
+      setSaveMessage("Consultation already completed.");
+      return;
+    }
+    if (complete && !diagnosis.trim()) {
+      setSaveMessage("Add a diagnosis before completing the consultation.");
+      return;
+    }
+    setIsSaving(true);
+    setSaveMessage("");
+    try {
+      const bootstrap = await getBackendBootstrap();
+      const activeWorkplaceId = workplaceId ?? bootstrap.workplaceId;
+      if (!activeWorkplaceId || !bootstrap.currentDoctorId) throw new ApiSyncSkippedError("Doctor workspace is not ready.");
+      const savedEncounter = await completeBackendEncounter({
+        patientId: patient.id,
+        doctorId: bootstrap.currentDoctorId,
+        workplaceId: activeWorkplaceId,
+        appointmentId,
+        encounterId,
+        workContext,
+        complete,
+        chiefComplaint: complaint || undefined,
+        symptoms: symptoms.length > 0 ? symptoms.join(", ") : undefined,
+        examination: observations || undefined,
+        diagnosis: diagnosis || undefined,
+        treatmentPlan: plan || undefined,
+      });
+      setEncounterId(savedEncounter.id);
+      setSaved(complete ? "final" : "draft");
+      setSaveMessage(complete ? "Consultation completed." : "Draft saved.");
+      if (complete && appointmentId) {
+        markAppointmentCompleted(appointmentId);
+        onFinalized?.(appointmentId);
+      }
+    } catch (error) {
+      setSaved("idle");
+      setSaveMessage(error instanceof Error ? error.message : "Unable to save consultation.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   const layoutClassName = showHeading
@@ -251,14 +320,15 @@ export function ConsultationForm({
               </div>
 
               <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-line">
-                <button onClick={() => setSaved("draft")} className="btn-secondary">
-                  <Save size={14} /> Save Draft
+                <button onClick={() => void saveConsultation(false)} disabled={isSaving || isCompletedAppointment} className="btn-secondary disabled:opacity-50">
+                  <Save size={14} /> {isSaving ? "Saving..." : "Save Draft"}
                 </button>
-                <button onClick={() => setSaved("final")} className="btn-primary">
-                  <CheckCircle2 size={14} /> Finalize Consultation
+                <button onClick={() => void saveConsultation(true)} disabled={isSaving || isCompletedAppointment} className="btn-primary disabled:opacity-50">
+                  <CheckCircle2 size={14} /> {isCompletedAppointment ? "Completed" : "Complete"}
                 </button>
                 {saved === "draft" && <span className="text-xs text-clay-500 ml-2">Saved as draft</span>}
-                {saved === "final" && <span className="text-xs text-sage-500 ml-2">Consultation finalized</span>}
+                {saved === "final" && <span className="text-xs text-sage-500 ml-2">Consultation completed</span>}
+                {saveMessage && saved === "idle" && <span className="text-xs text-alert-500 ml-2">{saveMessage}</span>}
               </div>
             </div>
           </Card>

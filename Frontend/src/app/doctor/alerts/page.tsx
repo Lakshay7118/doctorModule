@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, FileWarning, Siren, ListTodo, CheckCircle2 } from "lucide-react";
 import { SectionHeading, Card, SeverityBadge, EmptyState, ListSkeleton, SectionSkeleton } from "@/components/ui";
-import { clinicalAlerts as seedAlerts, getPatient, matchesWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
-import { ClinicalAlert } from "@/lib/types";
-import { acknowledgeBackendAlert, ApiSyncSkippedError, getBackendBootstrap } from "@/lib/api-client";
+import { ClinicalAlert, Patient } from "@/lib/types";
+import { acknowledgeBackendAlert, getBackendBootstrap } from "@/lib/api-client";
 
 const categoryIcon: Record<ClinicalAlert["category"], typeof AlertTriangle> = {
   Allergy: AlertTriangle,
@@ -19,6 +18,7 @@ const categoryIcon: Record<ClinicalAlert["category"], typeof AlertTriangle> = {
 export default function AlertsPage() {
   const { workContext } = useMode();
   const [alerts, setAlerts] = useState<ClinicalAlert[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [showAcknowledged, setShowAcknowledged] = useState(false);
   const [isLoadingAlerts, setIsLoadingAlerts] = useState(true);
   const [syncMessage, setSyncMessage] = useState("");
@@ -28,10 +28,17 @@ export default function AlertsPage() {
 
     getBackendBootstrap()
       .then((data) => {
-        if (!cancelled) setAlerts(data.alerts);
+        if (!cancelled) {
+          setAlerts(data.alerts);
+          setPatients(data.patients);
+        }
       })
       .catch(() => {
-        if (!cancelled) setAlerts(seedAlerts);
+        if (!cancelled) {
+          setAlerts([]);
+          setPatients([]);
+          setSyncMessage("Unable to load alerts from the backend.");
+        }
       })
       .finally(() => {
         if (!cancelled) setIsLoadingAlerts(false);
@@ -58,11 +65,11 @@ export default function AlertsPage() {
       await acknowledgeBackendAlert(id);
       setSyncMessage("Alert acknowledgement synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock alert acknowledged locally." : "Backend sync failed; local acknowledgement kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "alert acknowledgement was not saved."}`);
     }
   }
 
-  const contextAlerts = alerts.filter((a) => matchesWorkContext(a, workContext));
+  const contextAlerts = alerts;
   const visible = contextAlerts.filter((a) => showAcknowledged || !a.acknowledged);
   const openCount = contextAlerts.filter((a) => !a.acknowledged).length;
 
@@ -95,7 +102,7 @@ export default function AlertsPage() {
           <div className="divide-y divide-line">
             {visible.map((a) => {
               const Icon = categoryIcon[a.category];
-              const patient = a.patientId ? getPatient(a.patientId) : undefined;
+              const patient = a.patientId ? patients.find((entry) => entry.id === a.patientId) : undefined;
               return (
                 <div key={a.id} className="flex items-start gap-3.5 px-5 py-4">
                   <span

@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, Plus } from "lucide-react";
 import { SectionHeading, Card, Avatar, Pill, Modal, SectionSkeleton, TableSkeleton } from "@/components/ui";
-import { patients as seedPatients, diagnoses as seedDx, getPatient, matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
+import { matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { DiagnosisEntry, Patient } from "@/lib/types";
 import { CURRENT_DATE_ISO } from "@/lib/app-time";
-import { ApiSyncSkippedError, createBackendDiagnosis, getBackendBootstrap } from "@/lib/api-client";
+import { createBackendDiagnosis, getBackendBootstrap } from "@/lib/api-client";
 
 const icdReference = [
   { code: "E11.9", description: "Type 2 diabetes mellitus without complications" },
@@ -25,7 +25,7 @@ const icdReference = [
 ];
 
 export default function DiagnosisPage() {
-  const { workContext } = useMode();
+  const { selectedWorkplaceId, workContext } = useMode();
   const [dxList, setDxList] = useState<DiagnosisEntry[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -52,8 +52,9 @@ export default function DiagnosisPage() {
       })
       .catch(() => {
         if (cancelled) return;
-        setPatients(seedPatients);
-        setDxList(seedDx);
+        setPatients([]);
+        setDxList([]);
+        setSyncMessage("Unable to load diagnoses from the backend.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingDiagnosis(false);
@@ -100,12 +101,14 @@ export default function DiagnosisPage() {
     try {
       nextDiagnosis = await createBackendDiagnosis({
         patientId,
+        workplaceId: selectedWorkplaceId,
         icdCode: selectedCode.code,
         description: selectedCode.description,
       });
       setSyncMessage("Diagnosis synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock diagnosis saved locally." : "Backend sync failed; local diagnosis kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "diagnosis was not saved."}`);
+      return;
     }
     setDxList((prev) => [nextDiagnosis, ...prev]);
     setSelectedCode(null);
@@ -195,7 +198,7 @@ export default function DiagnosisPage() {
               </thead>
               <tbody>
                 {contextDxList.map((d) => {
-                  const patient = patientById.get(d.patientId) ?? getPatient(d.patientId);
+                  const patient = patientById.get(d.patientId);
                   return (
                     <tr key={d.id}>
                       <td>

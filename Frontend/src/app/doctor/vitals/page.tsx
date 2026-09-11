@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, Plus } from "lucide-react";
 import { SectionHeading, Card, Avatar, Modal, SectionSkeleton, Skeleton } from "@/components/ui";
-import { patientInWorkContext, patients as seedPatients } from "@/lib/mock-data";
+import { patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { Patient, Vitals } from "@/lib/types";
-import { ApiSyncSkippedError, createBackendVitals, getBackendBootstrap } from "@/lib/api-client";
+import { createBackendVitals, getBackendBootstrap } from "@/lib/api-client";
 
 export default function VitalsPage() {
-  const { workContext } = useMode();
+  const { selectedWorkplaceId, workContext } = useMode();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [activeId, setActiveId] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -32,7 +32,10 @@ export default function VitalsPage() {
         setPatients(data.patients);
       })
       .catch(() => {
-        if (!cancelled) setPatients(seedPatients);
+        if (!cancelled) {
+          setPatients([]);
+          setSyncMessage("Unable to load patients from the backend.");
+        }
       })
       .finally(() => {
         if (!cancelled) setIsLoadingVitals(false);
@@ -104,6 +107,7 @@ export default function VitalsPage() {
     try {
       const savedVitals = await createBackendVitals({
         patientId: activeId,
+        workplaceId: selectedWorkplaceId,
         bp: newVitals.bp,
         pulse: newVitals.pulse,
         temp: newVitals.temp,
@@ -114,7 +118,8 @@ export default function VitalsPage() {
       newVitals.recordedAt = savedVitals.recordedAt;
       setSyncMessage("Vitals synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock vitals saved locally." : "Backend sync failed; local vitals kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "vitals were not saved."}`);
+      return;
     }
     setPatients((prev) => prev.map((p) => (p.id === activeId ? { ...p, latestVitals: newVitals } : p)));
     setForm({ bp: "", pulse: "", temp: "", spo2: "", weight: "" });

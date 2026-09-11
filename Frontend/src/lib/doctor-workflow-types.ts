@@ -26,6 +26,7 @@ export interface Workplace {
 
 export interface DoctorShift {
   id: string;
+  doctorId?: string;
   workplaceId: string;
   date: string;
   startTime: string;
@@ -59,6 +60,8 @@ export interface HospitalWorkItem {
   id: string;
   patientId: string;
   workplaceId: string;
+  admissionId?: string;
+  encounterId?: string;
   bed: string;
   diagnosis: string;
   priority: "Low" | "Medium" | "High" | "Critical";
@@ -74,6 +77,8 @@ export interface HospitalWorkItem {
 
 export interface DoctorTaskItem {
   id: string;
+  appointmentId?: string;
+  kind?: "task" | "appointment";
   title: string;
   patientId?: string;
   workplaceId: string;

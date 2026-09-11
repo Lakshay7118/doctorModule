@@ -4,17 +4,6 @@ import Link from "next/link";
 import { ArrowUpRight, Video, MapPin, Clock, CalendarCheck2, PlayCircle } from "lucide-react";
 import { ActiveShiftBanner, ShiftCard } from "@/components/doctor-workflow";
 import { Card, SectionHeading, StatusBadge, SeverityBadge, Avatar, Pill, SectionSkeleton, Skeleton } from "@/components/ui";
-import {
-  appointments,
-  followUps,
-  clinicalAlerts,
-  tasks,
-  patients,
-  currentDoctor,
-  getPatient,
-  matchesWorkContext,
-  patientInWorkContext,
-} from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import { CURRENT_DATE_ISO, CURRENT_DATE_LABEL } from "@/lib/app-time";
@@ -23,25 +12,23 @@ const TODAY = CURRENT_DATE_ISO;
 
 export default function DoctorDashboard() {
   const { workContext } = useMode();
-  const { activeShift, clinicQueue, completeShift, doctorTasks, getWorkplace, hospitalWorklist, isLoadingWorkflow, shifts, startShift } =
+  const { activeShift, alerts, appointments, clinicQueue, completeShift, currentDoctorName, doctorTasks, followUps, getWorkplace, hospitalWorklist, isLoadingWorkflow, patients, shifts, startShift } =
     useDoctorWorkflow();
   const todayShifts = shifts
     .filter((shift) => shift.date === TODAY)
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
   const nextShift = todayShifts.find((shift) => shift.status === "upcoming");
   const todays = appointments
-    .filter((a) => a.date === TODAY && a.doctorId === currentDoctor.id && matchesWorkContext(a, workContext))
+    .filter((a) => a.date === TODAY && a.workContext === workContext)
     .sort((a, b) => a.time.localeCompare(b.time));
 
   const dueFollowUps = followUps.filter(
-    (f) => matchesWorkContext(f, workContext) && (f.status === "Due Today" || f.status === "Overdue")
+    (f) => (f.status === "Due Today" || f.status === "Overdue")
   );
-  const criticalAlerts = clinicalAlerts.filter(
-    (a) => matchesWorkContext(a, workContext) && a.severity === "Critical" && !a.acknowledged
-  );
-  const visibleAlerts = clinicalAlerts.filter((a) => matchesWorkContext(a, workContext));
-  const openTasks = tasks.filter((t) => matchesWorkContext(t, workContext) && t.status !== "Done");
-  const activePatients = patients.filter((p) => patientInWorkContext(p, workContext));
+  const criticalAlerts = alerts.filter((a) => a.severity === "Critical" && !a.acknowledged);
+  const visibleAlerts = alerts;
+  const openTasks = doctorTasks.filter((task) => task.status !== "completed");
+  const activePatients = patients;
 
   if (isLoadingWorkflow) {
     return (
@@ -111,7 +98,7 @@ export default function DoctorDashboard() {
     <div className="space-y-6">
       <SectionHeading
         eyebrow="01 - Dashboard"
-        title={`Good morning, ${currentDoctor.name.split(" ")[1] ? currentDoctor.name : currentDoctor.name}`}
+        title={`Good morning, ${currentDoctorName}`}
         description={`${CURRENT_DATE_LABEL} - showing ${workContext} appointments, patients, follow-ups and open clinical work only.`}
       />
 
@@ -224,7 +211,7 @@ export default function DoctorDashboard() {
             </div>
             <div className="divide-y divide-line">
               {todays.map((apt) => {
-                const patient = getPatient(apt.patientId);
+                const patient = patients.find((entry) => entry.id === apt.patientId);
                 if (!patient) return null;
                 return (
                   <div key={apt.id} className="flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-brand-50/40 sm:flex-row sm:items-center">
@@ -268,7 +255,7 @@ export default function DoctorDashboard() {
             </div>
             <div className="divide-y divide-line">
               {dueFollowUps.map((f) => {
-                const patient = getPatient(f.patientId);
+                const patient = patients.find((entry) => entry.id === f.patientId);
                 if (!patient) return null;
                 return (
                   <div key={f.id} className="flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-brand-50/40 sm:flex-row sm:items-center">
@@ -336,9 +323,9 @@ export default function DoctorDashboard() {
                 <div key={t.id} className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-ink-soft leading-snug">{t.title}</p>
-                    <p className="text-[11px] text-ink-faint mt-0.5">Due {t.dueDate}</p>
+                    <p className="text-[11px] text-ink-faint mt-0.5">Due {t.dueTime}</p>
                   </div>
-                  <Pill tone={t.priority === "High" ? "alert" : t.priority === "Medium" ? "clay" : "neutral"}>
+                  <Pill tone={t.priority === "Critical" || t.priority === "High" ? "alert" : t.priority === "Medium" ? "clay" : "neutral"}>
                     {t.priority}
                   </Pill>
                 </div>

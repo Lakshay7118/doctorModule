@@ -4,13 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, CheckCircle2, ClipboardPlus, FlaskConical, PillIcon, ScanLine, Stethoscope } from "lucide-react";
+import { ConsultationForm } from "@/components/doctor-consultation-form";
 import { WorkplaceBadge } from "@/components/doctor-workflow";
 import { Avatar, Card, Field, Pill, SectionHeading } from "@/components/ui";
 import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import { EncounterDraft } from "@/lib/doctor-workflow-types";
-import { getPatient } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
-import { ApiSyncSkippedError, completeBackendEncounter } from "@/lib/api-client";
+import { completeBackendEncounter } from "@/lib/api-client";
 
 const initialDraft: EncounterDraft = {
   chiefComplaint: "",
@@ -31,14 +31,14 @@ export default function EncounterPage() {
   const params = useParams<{ id: string; encounterId: string }>();
   const { workContext } = useMode();
   const {
+    backendDoctorId,
     clinicQueue,
     completeHospitalItem,
-    completeQueueConsultation,
     getWorkplace,
     hospitalWorklist,
-    startQueueConsultation,
+    patients,
   } = useDoctorWorkflow();
-  const patient = getPatient(params.id);
+  const patient = patients.find((entry) => entry.id === params.id);
   const queueItem = clinicQueue.find((item) => item.id === params.encounterId);
   const hospitalItem = hospitalWorklist.find((item) => item.id === params.encounterId);
   const workplace = getWorkplace(queueItem?.workplaceId ?? hospitalItem?.workplaceId ?? "");
@@ -68,28 +68,46 @@ export default function EncounterPage() {
     setDraft((prev) => ({ ...prev, [field]: value }));
   }
 
-  function saveDraft() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1800);
+  async function saveDraft() {
+    if (!patient || !backendDoctorId || !workplace) return;
+    try {
+      await completeBackendEncounter({
+        patientId: patient.id,
+        doctorId: backendDoctorId,
+        workplaceId: workplace.id,
+        appointmentId: queueItem?.id,
+        encounterId: hospitalItem?.encounterId,
+        workContext,
+        complete: false,
+        ...draft,
+      });
+      setSaved(true);
+      setSyncMessage("Draft saved to backend.");
+      setTimeout(() => setSaved(false), 1800);
+    } catch (error) {
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "draft was not saved."}`);
+    }
   }
 
   async function completeEncounter() {
+    if (!patient || !backendDoctorId || !workplace) return;
     try {
       await completeBackendEncounter({
-        patientId: patient?.id ?? params.id,
-        doctorId: patient?.primaryDoctorId ?? "doc-1",
-        workplaceId: workplace?.id ?? "",
-        appointmentId: undefined,
+        patientId: patient.id,
+        doctorId: backendDoctorId,
+        workplaceId: workplace.id,
+        appointmentId: queueItem?.id,
+        encounterId: hospitalItem?.encounterId,
         workContext,
+        complete: true,
         ...draft,
       });
       setSyncMessage("Encounter synced to backend.");
+      if (hospitalItem) completeHospitalItem(hospitalItem.id);
+      setCompleted(true);
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock encounter completed locally." : "Backend sync failed; local encounter completion kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "encounter was not completed."}`);
     }
-    if (queueItem) completeQueueConsultation(queueItem.id);
-    if (hospitalItem) completeHospitalItem(hospitalItem.id);
-    setCompleted(true);
   }
 
   if (!patient) {
@@ -100,6 +118,27 @@ export default function EncounterPage() {
           Back to patients
         </Link>
       </Card>
+    );
+  }
+
+  if (queueItem) {
+    return (
+      <div>
+        <div className="mb-4">
+          <Link href="/doctor/queue" className="btn-secondary">
+            <ArrowLeft size={15} /> Back to Queue
+          </Link>
+        </div>
+        <ConsultationForm
+          patients={patients}
+          appointmentId={queueItem.id}
+          workplaceId={queueItem.workplaceId}
+          preselectedPatientId={patient.id}
+          initialComplaint={queueItem.reason}
+          labOrderMode="modal"
+          prescriptionMode="modal"
+        />
+      </div>
     );
   }
 
@@ -129,7 +168,6 @@ export default function EncounterPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <WorkplaceBadge workplace={workplace} />
-            {queueItem && <Pill tone={queueItem.status === "in_consultation" ? "sage" : "brand"}>{queueItem.status.replace("_", " ")}</Pill>}
             {hospitalItem && <Pill tone={hospitalItem.priority === "Critical" ? "alert" : "brand"}>{hospitalItem.priority}</Pill>}
             {completed && <Pill tone="sage">Completed</Pill>}
           </div>
@@ -219,14 +257,9 @@ export default function EncounterPage() {
       <Card className="sticky bottom-4 z-20 !p-3 shadow-lift">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-ink-muted">
-            {syncMessage || (saved ? "Draft saved locally" : completed ? "Encounter completed" : "Frontend-only encounter draft")}
+            {syncMessage || (saved ? "Draft saved to backend" : completed ? "Encounter completed" : "Unsaved encounter draft")}
           </div>
           <div className="flex flex-wrap gap-2">
-            {queueItem && queueItem.status !== "in_consultation" && queueItem.status !== "completed" && (
-              <button type="button" onClick={() => startQueueConsultation(queueItem.id)} className="btn-secondary">
-                Start Consultation
-              </button>
-            )}
             <button type="button" onClick={saveDraft} className="btn-secondary">
               Save Draft
             </button>

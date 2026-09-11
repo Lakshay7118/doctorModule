@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, FileText, FlaskConical, Pill as PillIcon, ScanLine } from "lucide-react";
 import { SectionHeading, Card, Avatar, Pill, EmptyState } from "@/components/ui";
-import { patients, diagnoses, prescriptions, labOrders, radiologyOrders, matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
+import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 
 type RecordType = "all" | "diagnosis" | "prescription" | "lab" | "radiology" | "allergy";
 
@@ -19,19 +19,20 @@ interface RecordRow {
 
 export default function EMRPage() {
   const { workContext } = useMode();
+  const { diagnoses, labOrders, patients, prescriptions, radiologyOrders } = useDoctorWorkflow();
   const [filter, setFilter] = useState<RecordType>("all");
   const [query, setQuery] = useState("");
   const contextPatients = useMemo(
-    () => patients.filter((patient) => patientInWorkContext(patient, workContext)),
-    [workContext]
+    () => patients.filter((patient) => patient.workContexts?.includes(workContext) ?? true),
+    [patients, workContext]
   );
 
   const rows: RecordRow[] = useMemo(() => {
     const out: RecordRow[] = [];
-    diagnoses.filter((d) => matchesWorkContext(d, workContext)).forEach((d) =>
+    diagnoses.filter((d) => !d.workplaceId || d.workContext === workContext).forEach((d) =>
       out.push({ type: "diagnosis", patientId: d.patientId, title: `${d.icdCode} — ${d.description}`, meta: d.status, date: d.diagnosedOn })
     );
-    prescriptions.filter((rx) => matchesWorkContext(rx, workContext)).forEach((rx) =>
+    prescriptions.filter((rx) => !rx.workplaceId || rx.workContext === workContext).forEach((rx) =>
       out.push({
         type: "prescription",
         patientId: rx.patientId,
@@ -40,10 +41,10 @@ export default function EMRPage() {
         date: rx.date,
       })
     );
-    labOrders.filter((l) => matchesWorkContext(l, workContext)).forEach((l) =>
+    labOrders.filter((l) => !l.workplaceId || l.workContext === workContext).forEach((l) =>
       out.push({ type: "lab", patientId: l.patientId, title: l.testName, meta: l.status, date: l.orderedOn })
     );
-    radiologyOrders.filter((r) => matchesWorkContext(r, workContext)).forEach((r) =>
+    radiologyOrders.filter((r) => !r.workplaceId || r.workContext === workContext).forEach((r) =>
       out.push({
         type: "radiology",
         patientId: r.patientId,
@@ -64,7 +65,7 @@ export default function EMRPage() {
       )
     );
     return out.sort((a, b) => b.date.localeCompare(a.date));
-  }, [contextPatients, workContext]);
+  }, [contextPatients, diagnoses, labOrders, patients, prescriptions, radiologyOrders, workContext]);
 
   const icons: Record<Exclude<RecordType, "all">, typeof FileText> = {
     diagnosis: FileText,

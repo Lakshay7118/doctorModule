@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Download, FileBarChart2 } from "lucide-react";
-import { Button, Card, Field, Input, Modal, SectionHeader, Select, StatCard } from "./ui";
+import { Button, Card, Field, Input, Modal, Mono, SectionHeader, Select, StatCard, Table } from "./ui";
 import { useReceptionistData } from "./data-context";
 import { formatReceptionistDate, todayIso } from "./date-utils";
 
@@ -14,16 +14,40 @@ const reportTypes = [
   "Overall reception activity",
 ];
 
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function reportRangeDates(range: string, customStart: string, customEnd: string) {
+  const now = new Date();
+  if (range === "This week") {
+    const start = new Date(now);
+    start.setDate(now.getDate() - now.getDay());
+    return { startDate: isoDate(start), endDate: isoDate(now) };
+  }
+  if (range === "This month") {
+    return { startDate: isoDate(new Date(now.getFullYear(), now.getMonth(), 1)), endDate: isoDate(now) };
+  }
+  if (range === "Custom range") return { startDate: customStart, endDate: customEnd };
+  const today = todayIso();
+  return { startDate: today, endDate: today };
+}
+
+function csvCell(value: string | number) {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
 export function Reports() {
-  const { patients, appointments, admissions } = useReceptionistData();
+  const { patients, appointments, admissions, auditTrail, generateReport } = useReceptionistData();
   const [modalOpen, setModalOpen] = React.useState(false);
   const [type, setType] = React.useState(reportTypes[0]);
   const [range, setRange] = React.useState("Today");
   const [startDate, setStartDate] = React.useState(todayIso());
   const [endDate, setEndDate] = React.useState(todayIso());
   const [generated, setGenerated] = React.useState<string | null>(null);
+  const [summary, setSummary] = React.useState<Record<string, number> | null>(null);
 
-  function handleGenerate(event: React.FormEvent) {
+  async function handleGenerate(event: React.FormEvent) {
     event.preventDefault();
     const rangeLabel =
       range === "Custom range"
@@ -31,8 +55,37 @@ export function Reports() {
         : range === "Today"
           ? formatReceptionistDate(todayIso())
           : range;
+    const dates = reportRangeDates(range, startDate, endDate);
+    const report = await generateReport({
+      type: type as Parameters<typeof generateReport>[0]["type"],
+      range: range as Parameters<typeof generateReport>[0]["range"],
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+    });
     setGenerated(`${type} - ${rangeLabel}`);
+    setSummary(report ?? null);
     setModalOpen(false);
+  }
+
+  function handleDownloadCsv() {
+    if (!generated || !summary) return;
+
+    const rows = [
+      ["Report", generated],
+      ["Metric", "Value"],
+      ...Object.entries(summary).map(([label, value]) => [label, value] as [string, number]),
+    ];
+    const csv = rows.map((row) => row.map((value) => csvCell(value)).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeName = generated.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    link.href = url;
+    link.download = `${safeName || "reception-report"}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -96,11 +149,38 @@ export function Reports() {
         {generated ? (
           <div>
             <p className="rp-sub mb-3">Report ready: <span className="font-medium text-ink">{generated}</span></p>
-            <Button variant="secondary"><Download size={16} /> Download CSV</Button>
+            {summary && (
+              <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-5">
+                {Object.entries(summary).map(([label, value]) => (
+                  <div key={label} className="rounded-md border border-line bg-paper/60 px-3 py-2">
+                    <p className="text-[10px] uppercase text-ink-muted">{label.replace(/([A-Z])/g, " $1").trim()}</p>
+                    <p className="mt-1 font-mono text-sm font-semibold text-ink">{value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button variant="secondary" onClick={handleDownloadCsv} disabled={!summary}>
+              <Download size={16} /> Download CSV
+            </Button>
           </div>
         ) : (
           <p className="rp-sub">Choose a report type and range, then generate to preview a summary here.</p>
         )}
+      </Card>
+
+      <Card className="mt-5">
+        <h2 className="rp-h2">Reception audit trail</h2>
+        <Table columns={["Action", "Detail", "Actor", "Time"]}>
+          {auditTrail.map((entry) => (
+            <tr key={entry.id}>
+              <td className="font-medium text-[var(--rp-ink)]">{entry.action}</td>
+              <td>{entry.detail}</td>
+              <td>{entry.actor}</td>
+              <td><Mono>{entry.time}</Mono></td>
+            </tr>
+          ))}
+        </Table>
+        {auditTrail.length === 0 && <p className="rp-sub mt-3">No receptionist actions have been logged yet.</p>}
       </Card>
     </div>
   );

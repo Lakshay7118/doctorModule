@@ -5,6 +5,7 @@ import { AlertTriangle, Plus, Send, Trash2 } from "lucide-react";
 import { Field, Modal, Skeleton } from "@/components/ui";
 import { CURRENT_DATE_ISO } from "@/lib/app-time";
 import { ApiSyncSkippedError, createBackendPrescription, getBackendBootstrap } from "@/lib/api-client";
+import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import { patients as seedPatients, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { Medicine, Patient, Prescription } from "@/lib/types";
@@ -41,6 +42,7 @@ export function PrescriptionIssueModal({
   preselectedPatientId,
 }: PrescriptionIssueModalProps) {
   const { selectedWorkplaceId, workContext } = useMode();
+  const { addPrescription } = useDoctorWorkflow();
   const [backendDoctorId, setBackendDoctorId] = useState("doc-1");
   const [patientId, setPatientId] = useState(preselectedPatientId ?? "");
   const [medicines, setMedicines] = useState<Medicine[]>([emptyMedicine()]);
@@ -71,7 +73,7 @@ export function PrescriptionIssueModal({
 
     getBackendBootstrap()
       .then((data) => {
-        if (!cancelled) setBackendDoctorId(data.doctors[0]?.id ?? "doc-1");
+        if (!cancelled) setBackendDoctorId(data.currentDoctorId ?? data.doctors[0]?.id ?? "doc-1");
       })
       .catch(() => {
         if (!cancelled) setBackendDoctorId("doc-1");
@@ -117,6 +119,7 @@ export function PrescriptionIssueModal({
       medicines: filled,
       advice,
       status: "Active",
+      workplaceId: selectedWorkplaceId,
       workContext,
     };
 
@@ -130,9 +133,14 @@ export function PrescriptionIssueModal({
       });
       setSyncMessage("Prescription synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock prescription saved locally." : "Backend sync failed; local prescription kept.");
+      if (!(error instanceof ApiSyncSkippedError)) {
+        setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "prescription was not saved."}`);
+        return;
+      }
+      setSyncMessage("Mock prescription saved locally for this session.");
     }
 
+    addPrescription(nextPrescription);
     resetForm();
     onClose();
   }
@@ -148,7 +156,7 @@ export function PrescriptionIssueModal({
         <>
           <button
             onClick={issuePrescription}
-            disabled={isLoadingDoctorData || !signed || duplicateMedicineNames.length > 0}
+            disabled={isLoadingDoctorData || !signed || duplicateMedicineNames.length > 0 || incompleteMedicines.length > 0}
             className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Send size={14} /> Issue Prescription

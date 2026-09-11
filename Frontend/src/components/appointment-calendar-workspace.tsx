@@ -16,20 +16,12 @@ import {
   Video,
 } from "lucide-react";
 import { Avatar, Field, Modal, Skeleton, TimePicker } from "@/components/ui";
-import {
-  appointments as seedAppointments,
-  clinic,
-  doctors,
-  getPatient,
-  matchesWorkContext,
-  patientInWorkContext,
-  patients,
-} from "@/lib/mock-data";
+import { matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { CURRENT_DATE_ISO, getLocalDateISO } from "@/lib/app-time";
 import { Appointment, AppointmentType, ClinicLocation, Doctor, Patient } from "@/lib/types";
+import { DoctorShift } from "@/lib/doctor-workflow-types";
 import {
-  ApiSyncSkippedError,
   createBackendAppointment,
   deleteBackendAppointment,
   getBackendBootstrap,
@@ -37,7 +29,6 @@ import {
 } from "@/lib/api-client";
 import { ConsultationForm } from "@/components/doctor-consultation-form";
 
-const hospitalLocations = [{ id: "hosp-1", name: "Aster City Hospital - Cardiology" }];
 const dayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short" });
 const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short" });
 const viewOptions = [
@@ -113,6 +104,14 @@ function timeToMinutes(time: string) {
   return hours * 60 + minutes;
 }
 
+function clockTimeToMinutes(time: string) {
+  if (/^\d{2}:\d{2}$/.test(time)) {
+    const [hours, minutes] = time.split(":").map(Number);
+    return hours * 60 + minutes;
+  }
+  return timeToMinutes(time);
+}
+
 function minutesToTime(totalMinutes: number) {
   const normalized = ((totalMinutes % 1440) + 1440) % 1440;
   const hours = Math.floor(normalized / 60);
@@ -120,6 +119,30 @@ function minutesToTime(totalMinutes: number) {
   const suffix = hours >= 12 ? "PM" : "AM";
   const displayHours = hours % 12 || 12;
   return `${displayHours}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+function toNativeTime(value: string) {
+  const totalMinutes = timeToMinutes(value);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function fromNativeTime(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return "";
+  return minutesToTime(hours * 60 + minutes);
+}
+
+function formatAppointmentSaveError(message: string) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("available doctor shift")) {
+    return "This time is outside the doctor's available shift. Choose an earlier time, or extend the shift so it ends after the appointment.";
+  }
+  if (normalized.includes("already booked")) {
+    return "The doctor is already booked for this time. Choose another available slot.";
+  }
+  return message;
 }
 
 function durationRows(duration: number, slotInterval: number) {
@@ -132,6 +155,7 @@ export function AppointmentCalendarWorkspace() {
   const [appointmentPatients, setAppointmentPatients] = useState<Patient[]>([]);
   const [appointmentDoctors, setAppointmentDoctors] = useState<Doctor[]>([]);
   const [appointmentLocations, setAppointmentLocations] = useState<ClinicLocation[]>([]);
+  const [appointmentShifts, setAppointmentShifts] = useState<DoctorShift[]>([]);
   const [backendWorkplaceId, setBackendWorkplaceId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(CURRENT_DATE_ISO);
   const [viewMode, setViewMode] = useState<CalendarViewMode>("week");
@@ -172,23 +196,28 @@ export function AppointmentCalendarWorkspace() {
   useEffect(() => {
     let cancelled = false;
 
-    getBackendBootstrap()
+    getBackendBootstrap({ workplaceId: selectedWorkplaceId })
       .then((data) => {
         if (cancelled) return;
         setAppointmentPatients(data.patients);
         setAppointmentDoctors(data.doctors);
         setAppointmentLocations(data.locations);
-        setAppointments(data.appointments);
+        setAppointmentShifts(data.shifts);
+        setAppointments(data.appointments.map((appointment) => ({
+          ...appointment,
+          workContext: data.workplaces.find((workplace) => workplace.id === appointment.workplaceId)?.type === "hospital" ? "hospital" as const : "clinic" as const,
+        })));
         if (data.workplaceId) setBackendWorkplaceId(data.workplaceId);
         setSyncMessage("Backend calendar loaded.");
       })
       .catch(() => {
         if (cancelled) return;
-        setAppointmentPatients(patients);
-        setAppointmentDoctors(doctors);
-        setAppointmentLocations(clinic.locations);
-        setAppointments(seedAppointments);
-        setSyncMessage("Backend unavailable; using local calendar data.");
+        setAppointmentPatients([]);
+        setAppointmentDoctors([]);
+        setAppointmentLocations([]);
+        setAppointmentShifts([]);
+        setAppointments([]);
+        setSyncMessage("Unable to load the calendar from the backend.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingCalendar(false);
@@ -197,13 +226,13 @@ export function AppointmentCalendarWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedWorkplaceId]);
 
   const contextPatients = useMemo(
     () => appointmentPatients.filter((patient) => patientInWorkContext(patient, workContext)),
     [appointmentPatients, workContext]
   );
-  const contextLocations = workContext === "hospital" ? hospitalLocations : appointmentLocations;
+  const contextLocations = appointmentLocations;
   const patientById = useMemo(
     () => new Map(appointmentPatients.map((patient) => [patient.id, patient])),
     [appointmentPatients]
@@ -225,6 +254,8 @@ export function AppointmentCalendarWorkspace() {
   const selectedDateAppointments = visibleAppointments
     .filter((appointment) => appointment.date === selectedDate)
     .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+  const activeSelectedDateAppointments = selectedDateAppointments.filter((appointment) => appointment.status !== "Completed");
+  const completedSelectedDateAppointments = selectedDateAppointments.filter((appointment) => appointment.status === "Completed");
   const scheduleCounts = {
     today: selectedDateAppointments.length,
     waiting: selectedDateAppointments.filter((appointment) => appointment.status === "Scheduled" || appointment.status === "Checked In").length,
@@ -352,9 +383,27 @@ export function AppointmentCalendarWorkspace() {
       reason: form.reason.trim(),
     };
 
+    const appointmentStart = timeToMinutes(form.time);
+    const appointmentEnd = appointmentStart + nextAppointment.durationMins;
+    const hasAvailableShift = appointmentShifts.some((shift) =>
+      shift.doctorId === form.doctorId &&
+      shift.workplaceId === (backendWorkplaceId ?? selectedWorkplaceId) &&
+      shift.date === form.date &&
+      shift.bookingEnabled !== false &&
+      (shift.status === "upcoming" || shift.status === "active") &&
+      clockTimeToMinutes(shift.startTime) <= appointmentStart &&
+      clockTimeToMinutes(shift.endTime) >= appointmentEnd
+    );
+
+    if (!hasAvailableShift) {
+      const message = "This time is outside the doctor's available shift. Choose an earlier time, or extend the shift so it ends after the appointment.";
+      setAppointmentFormError(message);
+      setSyncMessage("Appointment was not saved: no available doctor shift covers the selected time.");
+      return;
+    }
+
     if (editingAppointmentId) {
       const existing = appointments.find((appointment) => appointment.id === editingAppointmentId);
-      const localUpdate = { ...nextAppointment, status: existing?.status ?? "Scheduled" };
       try {
         const savedAppointment = await updateBackendAppointment(editingAppointmentId, {
           ...nextAppointment,
@@ -369,8 +418,10 @@ export function AppointmentCalendarWorkspace() {
         );
         setSyncMessage("Appointment changes synced to backend.");
       } catch (error) {
-        setAppointments((prev) => prev.map((appointment) => (appointment.id === editingAppointmentId ? localUpdate : appointment)));
-        setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock appointment updated locally." : "Backend sync failed; local appointment update kept.");
+        const message = error instanceof Error ? error.message : "The appointment was not updated.";
+        setSyncMessage(`Backend sync failed: ${message}`);
+        setAppointmentFormError(formatAppointmentSaveError(message));
+        return;
       }
       setSelectedDate(form.date);
       resetAppointmentForm();
@@ -386,8 +437,10 @@ export function AppointmentCalendarWorkspace() {
       setAppointments((prev) => [savedAppointment, ...prev]);
       setSyncMessage("Appointment saved to backend.");
     } catch (error) {
-      setAppointments((prev) => [nextAppointment, ...prev]);
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock appointment saved locally." : "Backend sync failed; local appointment kept.");
+      const message = error instanceof Error ? error.message : "The appointment was not saved.";
+      setSyncMessage(`Backend sync failed: ${message}`);
+      setAppointmentFormError(formatAppointmentSaveError(message));
+      return;
     }
 
     setSelectedDate(form.date);
@@ -402,7 +455,8 @@ export function AppointmentCalendarWorkspace() {
       await deleteBackendAppointment(appointment.id);
       setSyncMessage("Appointment deleted from backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock appointment deleted locally." : "Backend delete failed; local appointment removed.");
+      setSyncMessage(`Backend delete failed: ${error instanceof Error ? error.message : "appointment was not deleted."}`);
+      return;
     }
     setAppointments((prev) => prev.filter((item) => item.id !== appointment.id));
     setSelectedConsultation(null);
@@ -524,7 +578,7 @@ export function AppointmentCalendarWorkspace() {
             <div className="min-w-0">
               <div className="flex items-center gap-3">
                 <h1 className="font-display text-2xl text-ink">Calendar</h1>
-                <p className="truncate text-sm text-ink-muted">{workContext === "hospital" ? "Hospital Duty" : clinic.name}</p>
+                <p className="truncate text-sm text-ink-muted">{workContext === "hospital" ? "Hospital Duty" : appointmentLocations[0]?.name ?? "Doctor calendar"}</p>
               </div>
               {syncMessage && <p className="mt-1 text-xs text-ink-muted">{syncMessage}</p>}
             </div>
@@ -679,7 +733,7 @@ export function AppointmentCalendarWorkspace() {
                           </div>
                           <div className="space-y-1">
                             {dayAppointments.slice(0, 3).map((appointment) => {
-                              const patient = patientById.get(appointment.patientId) ?? getPatient(appointment.patientId);
+                              const patient = patientById.get(appointment.patientId);
                               return (
                                 <button
                                   key={appointment.id}
@@ -755,7 +809,7 @@ export function AppointmentCalendarWorkspace() {
                           .filter((appointment) => appointment.date === date)
                           .map((appointment) => {
                             const top = Math.max(0, ((timeToMinutes(appointment.time) - slots[0]) / slotInterval) * 40);
-                            const patient = patientById.get(appointment.patientId) ?? getPatient(appointment.patientId);
+                            const patient = patientById.get(appointment.patientId);
                             return (
                               <button
                                 key={appointment.id}
@@ -826,29 +880,58 @@ export function AppointmentCalendarWorkspace() {
                 {selectedDateAppointments.length === 0 ? (
                   <p className="py-4 text-sm text-ink-muted">No appointments</p>
                 ) : (
-                  selectedDateAppointments.map((appointment) => {
-                    const patient = patientById.get(appointment.patientId) ?? getPatient(appointment.patientId);
-                    return (
-                      <button
-                        key={appointment.id}
-                        type="button"
-                        onClick={() => setSelectedConsultation(appointment)}
-                        className="w-full rounded-md border border-line bg-paper/60 p-3 text-left transition-colors hover:border-brand-100 hover:bg-brand-50"
-                      >
-                        <div className="flex items-start gap-3">
-                          {patient ? <Avatar initials={patient.avatarInitials} size={34} /> : <UserRound size={28} />}
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-ink">{patient?.name ?? "Patient"}</p>
-                            <p className="mt-0.5 truncate text-xs text-ink-muted">{appointment.reason}</p>
-                            <p className="mt-2 flex items-center gap-1 font-mono text-[11px] text-ink-muted">
-                              {appointment.type === "Video" ? <Video size={12} /> : <MapPin size={12} />}
-                              {appointment.time} - {appointment.durationMins} min
-                            </p>
+                  <>
+                    {activeSelectedDateAppointments.map((appointment) => {
+                      const patient = patientById.get(appointment.patientId);
+                      return (
+                        <button
+                          key={appointment.id}
+                          type="button"
+                          onClick={() => setSelectedConsultation(appointment)}
+                          className="w-full rounded-md border border-line bg-paper/60 p-3 text-left transition-colors hover:border-brand-100 hover:bg-brand-50"
+                        >
+                          <div className="flex items-start gap-3">
+                            {patient ? <Avatar initials={patient.avatarInitials} size={34} /> : <UserRound size={28} />}
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-ink">{patient?.name ?? "Patient"}</p>
+                              <p className="mt-0.5 truncate text-xs text-ink-muted">{appointment.reason}</p>
+                              <p className="mt-2 flex items-center gap-1 font-mono text-[11px] text-ink-muted">
+                                {appointment.type === "Video" ? <Video size={12} /> : <MapPin size={12} />}
+                                {appointment.time} - {appointment.durationMins} min
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    );
-                  })
+                        </button>
+                      );
+                    })}
+                    {completedSelectedDateAppointments.length > 0 && (
+                      <div className="pt-3">
+                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-sage-500">Completed</p>
+                        {completedSelectedDateAppointments.map((appointment) => {
+                          const patient = patientById.get(appointment.patientId);
+                          return (
+                            <button
+                              key={appointment.id}
+                              type="button"
+                              onClick={() => setSelectedConsultation(appointment)}
+                              className="mb-2 w-full rounded-md border border-sage-100 bg-sage-50 p-3 text-left transition-colors hover:border-sage-200"
+                            >
+                              <div className="flex items-start gap-3">
+                                {patient ? <Avatar initials={patient.avatarInitials} size={34} /> : <UserRound size={28} />}
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold text-ink">{patient?.name ?? "Patient"}</p>
+                                  <p className="mt-0.5 truncate text-xs text-ink-muted">{appointment.reason}</p>
+                                  <p className="mt-2 flex items-center gap-1 font-mono text-[11px] text-sage-600">
+                                    {appointment.time} - completed
+                                  </p>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </aside>
@@ -941,11 +1024,13 @@ export function AppointmentCalendarWorkspace() {
             />
           </Field>
           <Field label="Time">
-            <TimePicker
-              value={form.time}
-              onChange={(value) => setForm((prev) => ({ ...prev, time: value }))}
-              format="12h"
-              ariaLabel="Appointment time"
+            <input
+              type="time"
+              value={toNativeTime(form.time)}
+              onChange={(event) => setForm((prev) => ({ ...prev, time: fromNativeTime(event.target.value) }))}
+              step={900}
+              aria-label="Appointment time"
+              className="input-field"
             />
           </Field>
           <Field label="Duration">
@@ -1129,11 +1214,18 @@ export function AppointmentCalendarWorkspace() {
       >
         {selectedConsultation && (
           <ConsultationForm
-            patients={appointmentPatients.length > 0 ? appointmentPatients : patients}
+            patients={appointmentPatients}
+            appointmentId={selectedConsultation.id}
+            workplaceId={selectedConsultation.workplaceId ?? backendWorkplaceId ?? selectedWorkplaceId}
             preselectedPatientId={selectedConsultation.patientId}
             labOrderMode="modal"
             prescriptionMode="modal"
             showHeading={false}
+            onFinalized={(appointmentId) => {
+              if (!appointmentId) return;
+              setAppointments((prev) => prev.map((appointment) => appointment.id === appointmentId ? { ...appointment, status: "Completed" } : appointment));
+              setSelectedConsultation((current) => current && current.id === appointmentId ? { ...current, status: "Completed" } : current);
+            }}
           />
         )}
       </Modal>

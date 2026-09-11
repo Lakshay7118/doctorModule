@@ -1,35 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Phone, Droplet, Stethoscope, FilePlus2, FlaskConical, CalendarClock } from "lucide-react";
 import { ConsultationForm } from "@/components/doctor-consultation-form";
 import { LabOrderIssueModal } from "@/components/lab-order-issue-modal";
 import { PrescriptionIssueModal } from "@/components/prescription-issue-modal";
 import { Card, SectionHeading, Avatar, Pill, OrderStatusBadge, EmptyState, Modal, Skeleton } from "@/components/ui";
-import {
-  appointments as seedAppointments,
-  consultationNotes,
-  diagnoses as seedDiagnoses,
-  doctors as seedDoctors,
-  followUps as seedFollowUps,
-  getDoctor,
-  getPatient,
-  labOrders as seedLabOrders,
-  prescriptions as seedPrescriptions,
-  radiologyOrders as seedRadiologyOrders,
-} from "@/lib/mock-data";
-import { getBackendBootstrap } from "@/lib/api-client";
-import {
-  Appointment,
-  DiagnosisEntry,
-  Doctor,
-  FollowUp,
-  LabOrder,
-  Patient,
-  Prescription,
-  RadiologyOrder,
-} from "@/lib/types";
+import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
+import { ConsultationNote } from "@/lib/types";
 
 const tagTone: Record<string, "brand" | "clay" | "alert" | "sage"> = {
   New: "brand",
@@ -39,65 +18,24 @@ const tagTone: Record<string, "brand" | "clay" | "alert" | "sage"> = {
 };
 
 export default function PatientDetail({ params }: { params: { id: string } }) {
-  const [loading, setLoading] = useState(true);
-  const [patient, setPatient] = useState<Patient | undefined>();
-  const [doctorRows, setDoctorRows] = useState<Doctor[]>([]);
-  const [diagnoses, setDiagnoses] = useState<DiagnosisEntry[]>([]);
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
-  const [labOrders, setLabOrders] = useState<LabOrder[]>([]);
-  const [radiologyOrders, setRadiologyOrders] = useState<RadiologyOrder[]>([]);
-  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const {
+    appointments,
+    diagnoses,
+    doctors: doctorRows,
+    followUps,
+    isLoadingWorkflow,
+    labOrders,
+    patients,
+    prescriptions,
+    radiologyOrders,
+  } = useDoctorWorkflow();
   const [consultationOpen, setConsultationOpen] = useState(false);
   const [prescriptionOpen, setPrescriptionOpen] = useState(false);
   const [labOrderOpen, setLabOrderOpen] = useState(false);
+  const patient = patients.find((item) => item.id === params.id);
+  const consultationNotes: ConsultationNote[] = [];
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const applySeededPatientRecord = () => {
-      setPatient(getPatient(params.id));
-      setDoctorRows(seedDoctors);
-      setDiagnoses(seedDiagnoses);
-      setPrescriptions(seedPrescriptions);
-      setLabOrders(seedLabOrders);
-      setRadiologyOrders(seedRadiologyOrders);
-      setFollowUps(seedFollowUps);
-      setAppointments(seedAppointments);
-    };
-
-    getBackendBootstrap()
-      .then((data) => {
-        if (cancelled) return;
-
-        const backendPatient = data.patients.find((item) => item.id === params.id);
-        if (!backendPatient) {
-          applySeededPatientRecord();
-          return;
-        }
-
-        setPatient(backendPatient);
-        setDoctorRows(data.doctors);
-        setDiagnoses(data.diagnoses);
-        setPrescriptions(data.prescriptions);
-        setLabOrders(data.labOrders);
-        setRadiologyOrders(data.radiologyOrders);
-        setFollowUps(data.followUps);
-        setAppointments(data.appointments);
-      })
-      .catch(() => {
-        if (!cancelled) applySeededPatientRecord();
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [params.id]);
-
-  if (loading) {
+  if (isLoadingWorkflow) {
     return (
       <div>
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -182,9 +120,9 @@ export default function PatientDetail({ params }: { params: { id: string } }) {
   const patientRadiology = radiologyOrders.filter((r) => r.patientId === patient.id);
   const patientFollowUps = followUps.filter((f) => f.patientId === patient.id);
   const patientAppointments = appointments.filter((a) => a.patientId === patient.id);
-  const patientNotes = consultationNotes.filter((c) => c.patientId === patient.id);
+  const patientNotes = consultationNotes.filter((note) => note.patientId === patient.id);
   const patientModalRows = [patient];
-  const doctor = doctorRows.find((item) => item.id === patient.primaryDoctorId) ?? getDoctor(patient.primaryDoctorId);
+  const doctor = doctorRows.find((item) => item.id === patient.primaryDoctorId);
   const patientTimeline = [
     ...patientAppointments.map((item) => ({
       id: `appointment-${item.id}`,

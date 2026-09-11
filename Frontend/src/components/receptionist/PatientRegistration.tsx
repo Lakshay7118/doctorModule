@@ -25,6 +25,8 @@ export function PatientRegistration() {
     notes: "",
   });
   const [lastRegistered, setLastRegistered] = React.useState<null | { uhid: string; name: string }>(null);
+  const [saveError, setSaveError] = React.useState("");
+  const [isSaving, setIsSaving] = React.useState(false);
 
   React.useEffect(() => {
     setForm((current) => (departmentOptions.includes(current.department) ? current : { ...current, department: departmentOptions[0] }));
@@ -34,34 +36,45 @@ export function PatientRegistration() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!form.name || !form.age || !form.phone) return;
+    if (!form.name || !form.age || !form.phone || isSaving) return;
+    setSaveError("");
+    setIsSaving(true);
 
-    const patient = addPatient({
-      name: form.name,
-      age: Number(form.age),
-      gender: form.gender as any,
-      phone: form.phone,
-      department: form.department,
-      bloodGroup: form.bloodGroup || undefined,
-      lastVisit: formatReceptionistDate(todayIso()),
-      status: "New",
-    });
+    try {
+      const patient = await addPatient({
+        name: form.name,
+        age: Number(form.age),
+        gender: form.gender as any,
+        phone: form.phone,
+        email: form.email || undefined,
+        department: form.department,
+        bloodGroup: form.bloodGroup || undefined,
+        address: form.address || undefined,
+        notes: form.notes || undefined,
+        lastVisit: formatReceptionistDate(todayIso()),
+        status: "New",
+      });
 
-    setLastRegistered({ uhid: patient.uhid, name: patient.name });
-    setForm({
-      name: "",
-      age: "",
-      gender: "Male",
-      phone: "",
-      email: "",
-      address: "",
-      department: departmentOptions[0],
-      bloodGroup: "",
-      notes: "",
-    });
-    setModalOpen(false);
+      setLastRegistered({ uhid: patient.uhid, name: patient.name });
+      setForm({
+        name: "",
+        age: "",
+        gender: "Male",
+        phone: "",
+        email: "",
+        address: "",
+        department: departmentOptions[0],
+        bloodGroup: "",
+        notes: "",
+      });
+      setModalOpen(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Patient could not be saved to the backend database.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -130,14 +143,15 @@ export function PatientRegistration() {
           </Field>
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            <Button type="submit">
-              <UserPlus size={16} /> Register patient
+            <Button type="submit" disabled={isSaving}>
+              <UserPlus size={16} /> {isSaving ? "Saving..." : "Register patient"}
             </Button>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
             <span className="text-xs text-ink-muted">A UHID is generated after saving.</span>
           </div>
+          {saveError && <p role="alert" className="rounded-md border border-alert-100 bg-alert-50 px-3 py-2 text-xs font-medium text-alert-500">{saveError}</p>}
         </form>
       </Modal>
 

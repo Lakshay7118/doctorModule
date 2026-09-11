@@ -5,8 +5,8 @@ import { Building2, Copy, Hospital, MonitorSmartphone, Plus, Trash2 } from "luci
 import { WorkplaceBadge } from "@/components/doctor-workflow";
 import { SectionHeading, Card, Avatar, Field, Pill, TimePicker, SectionSkeleton, Skeleton } from "@/components/ui";
 import { getBackendState, saveBackendState } from "@/lib/api-client";
-import { currentDoctor } from "@/lib/mock-data";
 import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
+import { useMode } from "@/lib/mode-context";
 
 const tabs = ["Profile", "My Workplaces", "Consultation Preferences", "Notifications", "Security"] as const;
 type Tab = (typeof tabs)[number];
@@ -94,23 +94,23 @@ function buildDefaultNotifications() {
 
 const defaultSettings: DoctorSettingsState = {
   profile: {
-    name: currentDoctor.name,
-    email: "doctor@qlyno.com",
-    specialty: currentDoctor.specialty,
-    qualifications: currentDoctor.qualifications,
-    experienceYears: currentDoctor.experienceYears,
-    clinicName: "Meridian Family Clinic",
+    name: "Doctor",
+    email: "",
+    specialty: "",
+    qualifications: "",
+    experienceYears: 0,
+    clinicName: "",
     awards: "",
-    languages: "English, Hindi",
+    languages: "",
     youtubePodcastUrl: "",
     photoUrl: "",
-    publicProfileUrl: "https://qlyno.com/doctor/dr-ananya-rao-internal-medicine-bengaluru",
-    phone: "+91 98450 11223",
+    publicProfileUrl: "",
+    phone: "",
     emergencyPhone: "",
-    country: "India",
-    state: "Karnataka",
-    city: "Bengaluru",
-    address: "14 MG Road, Bengaluru",
+    country: "",
+    state: "",
+    city: "",
+    address: "",
     bookingPreference: "Slot Based Booking",
     appointmentSlotMinutes: "15",
     freeFollowUpDays: "7",
@@ -139,19 +139,20 @@ const defaultSettings: DoctorSettingsState = {
 };
 
 export default function SettingsPage() {
-  const { backendDoctorId, workplaces, isLoadingWorkflow } = useDoctorWorkflow();
+  const { selectedWorkplaceId } = useMode();
+  const { backendDoctorId, currentDoctorName, workplaces, isLoadingWorkflow } = useDoctorWorkflow();
   const [tab, setTab] = useState<Tab>("Profile");
   const [settings, setSettings] = useState<DoctorSettingsState>(defaultSettings);
   const [saved, setSaved] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
-  const stateEntityId = backendDoctorId ?? currentDoctor.id;
+  const stateEntityId = backendDoctorId ?? "doctor-settings";
 
   useEffect(() => {
     let cancelled = false;
     setIsLoadingSettings(true);
 
-    getBackendState<Partial<DoctorSettingsState>>("doctor-settings", stateEntityId)
+    getBackendState<Partial<DoctorSettingsState>>("doctor-settings", stateEntityId, selectedWorkplaceId)
       .then((state) => {
         if (cancelled || !state) return;
         setSettings((prev) => ({
@@ -162,7 +163,11 @@ export default function SettingsPage() {
           notifications: { ...prev.notifications, ...state.notifications },
         }));
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        if (!cancelled) {
+          setSyncMessage(`Database sync failed: ${error instanceof Error ? error.message : "settings could not be loaded."}`);
+        }
+      })
       .finally(() => {
         if (!cancelled) setIsLoadingSettings(false);
       });
@@ -170,7 +175,12 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [stateEntityId]);
+  }, [selectedWorkplaceId, stateEntityId]);
+
+  useEffect(() => {
+    if (!currentDoctorName || currentDoctorName === "Doctor") return;
+    setSettings((prev) => (prev.profile.name === "Doctor" ? { ...prev, profile: { ...prev.profile, name: currentDoctorName } } : prev));
+  }, [currentDoctorName]);
 
   if (isLoadingWorkflow || isLoadingSettings) {
     return (
@@ -296,10 +306,11 @@ export default function SettingsPage() {
     setSyncMessage("");
 
     try {
-      await saveBackendState("doctor-settings", stateEntityId, settings);
+      await saveBackendState("doctor-settings", stateEntityId, settings, selectedWorkplaceId);
       setSyncMessage("Saved to database");
-    } catch {
-      setSyncMessage("Saved locally. Database sync failed.");
+    } catch (error) {
+      setSyncMessage(`Database sync failed: ${error instanceof Error ? error.message : "settings were not saved."}`);
+      return;
     }
 
     setSaved(true);
@@ -337,7 +348,7 @@ export default function SettingsPage() {
               <div className="space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-4">
-                    <Avatar initials={currentDoctor.avatarInitials} size={64} />
+                    <Avatar initials={settings.profile.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()} size={64} />
                     <div>
                       <p className="text-sm font-semibold text-ink">{settings.profile.name}</p>
                       <p className="text-xs text-ink-muted">{settings.profile.specialty || "Specialty not added"}</p>

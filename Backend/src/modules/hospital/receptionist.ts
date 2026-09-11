@@ -41,7 +41,24 @@ const createPatient = workplaceBody.extend({
   primaryDoctorId: uuid.optional(),
   localMrn: text,
   department: optionalText,
+  address: optionalText,
+  notes: optionalText,
 });
+
+const updatePatient = workplaceBody.extend({
+  fullName: text.optional(),
+  gender: z.enum(["MALE", "FEMALE", "OTHER", "UNKNOWN"]).optional(),
+  dateOfBirth: z.union([
+    z.string().date().transform((value) => new Date(`${value}T00:00:00.000Z`)),
+    z.null(),
+  ]).optional(),
+  phone: z.string().trim().min(7).max(30).optional(),
+  email: z.union([z.string().email(), z.literal("")]).optional(),
+  bloodGroup: optionalText,
+  department: optionalText,
+  address: z.string().trim().max(1000).optional(),
+  notes: z.string().trim().max(2000).optional(),
+}).strict();
 
 const createAppointment = workplaceBody.extend({
   patientId: uuid,
@@ -91,6 +108,104 @@ const createNotification = workplaceBody.extend({
   subject: text,
   body: text,
 });
+
+const createReceptionistAction = workplaceBody.extend({
+  action: z.enum(["PATIENT_CALLED", "OPD_STATUS_UPDATED", "CONSULTATION_SLIP_PRINTED", "TOKEN_SLIP_PRINTED", "VISITOR_PASS_PRINTED", "PROFILE_SAVED", "PRINTER_TESTED"]),
+  subject: text,
+  detail: text,
+  relatedType: optionalText,
+  relatedId: optionalText,
+});
+
+const generateReport = workplaceBody.extend({
+  type: z.enum(["Patient registrations", "Appointments", "Admissions", "Cancellations", "Overall reception activity"]),
+  range: z.enum(["Today", "This week", "This month", "Custom range"]),
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+}).superRefine((value, ctx) => {
+  if (value.endDate < value.startDate) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endDate"], message: "End date must be after start date" });
+});
+
+const saveSettings = workplaceBody.extend({
+  profile: z.object({
+    displayName: text,
+    counterNumber: text,
+    defaultDepartmentView: text,
+  }).strict().optional(),
+  printers: z.object({
+    tokenPrinter: text,
+    visitorPassPrinter: text,
+    testPrint: z.boolean().default(false),
+  }).strict().optional(),
+  security: z.object({
+    sessionTimeoutMinutes: z.number().int().min(5).max(480),
+    signOutAllSessions: z.boolean().default(false),
+  }).strict().optional(),
+  notificationPreferences: z.record(z.boolean()).optional(),
+}).strict().refine((value) => Boolean(value.profile || value.printers || value.security || value.notificationPreferences));
+
+const receptionistModulesByContext = {
+  "solo-doctor": ["dashboard", "patient-directory", "appointments", "check-in", "billing", "communication", "reports", "settings", "search", "quick-actions", "follow-ups", "tasks", "documents", "coordination", "ai-assistant"],
+  clinic: ["dashboard", "patient-directory", "appointments", "check-in", "opd", "billing", "communication", "reports", "settings", "search", "quick-actions", "follow-ups", "tasks", "documents", "coordination", "ai-assistant"],
+  hospital: ["dashboard", "patient-directory", "appointments", "check-in", "opd", "ipd-admission", "visitors", "billing", "emergency", "communication", "reports", "settings", "search", "quick-actions", "follow-ups", "tasks", "documents", "coordination", "ai-assistant"],
+} as const;
+
+function receptionistContextForWorkplace(workplace: { id: string; name: string; type: string; timeZone: string }) {
+  const type =
+    workplace.type === "SOLO_PRACTICE" || workplace.type === "ONLINE_PRACTICE"
+      ? "solo-doctor"
+      : workplace.type === "CLINIC"
+        ? "clinic"
+        : "hospital";
+
+  const label =
+    type === "solo-doctor"
+      ? "Solo Doctor Receptionist"
+      : type === "clinic"
+        ? "Clinic Receptionist"
+        : "Hospital Receptionist";
+
+  return {
+    type,
+    label,
+    organizationName: workplace.name,
+    workplaceId: workplace.id,
+    timeZone: workplace.timeZone,
+    ownerLabel: type === "solo-doctor" ? "Solo doctor" : type === "clinic" ? "Clinic admin" : "Hospital admin",
+    scopeLabel:
+      type === "solo-doctor"
+        ? "One doctor practice"
+        : type === "clinic"
+          ? "Permitted clinic doctors, services and locations"
+          : "Assigned hospital desks, departments and workflows",
+    allowedModules: receptionistModulesByContext[type],
+    permissions: {
+      patientRegistration: true,
+      appointments: true,
+      checkInQueue: true,
+      billing: true,
+      communication: true,
+      documents: true,
+      followUps: true,
+      tasks: true,
+      whatsApp: true,
+      aiAssistant: true,
+      opdRouting: type !== "solo-doctor",
+      admissions: type === "hospital",
+      discharge: type === "hospital",
+      visitors: type === "hospital",
+      emergencyRouting: type === "hospital",
+      diagnostics: true,
+      pharmacy: true,
+      clinicalAccess: false,
+    },
+    boundaries: [
+      "Reception can update demographic and operational workflow data only.",
+      "Clinical notes, diagnosis, report interpretation and medical decisions stay with clinical staff.",
+      "Emergency questions must be routed to the configured clinical team.",
+    ],
+  };
+}
 
 function id() {
   return randomUUID();
@@ -150,8 +265,33 @@ function displayTime(value: Date) {
   }).format(value);
 }
 
+function parseReceptionistSettings(body?: string | null) {
+  if (!body) return null;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, Prisma.InputJsonValue> : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseRegistrationDetails(body?: string | null) {
+  if (!body) return {} as { address?: string; notes?: string };
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {} as { address?: string; notes?: string };
+    const value = parsed as Record<string, unknown>;
+    return {
+      address: typeof value.address === "string" ? value.address : undefined,
+      notes: typeof value.notes === "string" ? value.notes : undefined,
+    };
+  } catch {
+    return {} as { address?: string; notes?: string };
+  }
+}
+
 function patientStatus(row: { createdAt: Date; patient_workplaces: Array<{ status: string }> }) {
-  if (row.patient_workplaces.some((item) => item.status !== "ACTIVE")) return "Discharged";
+  if (row.patient_workplaces.some((item) => item.status !== "ACTIVE")) return "Deactivated";
   const createdToday = row.createdAt.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10);
   return createdToday ? "New" : "Active";
 }
@@ -212,7 +352,7 @@ async function receptionistSnapshot(context: RequestContext, workplaceId?: strin
   const endOfToday = new Date(startOfToday);
   endOfToday.setDate(endOfToday.getDate() + 1);
 
-  const [doctors, patients, appointments, queueAppointments, visitors, admissions, emergencyCases, billingRows, wards, outbox] = await Promise.all([
+  const [doctors, patients, appointments, queueAppointments, visitors, admissions, emergencyCases, billingRows, wards, outbox, followUps, tasks, orders, prescriptions, documents, profile, content, auditEvents] = await Promise.all([
     prisma.doctor_profiles.findMany({
       where: { doctor_workplaces: { some: { workplaceId: workplace.id, status: "ACTIVE" } } },
       include: { doctor_workplaces: { where: { workplaceId: workplace.id }, take: 1 } },
@@ -284,10 +424,62 @@ async function receptionistSnapshot(context: RequestContext, workplaceId?: strin
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
+    prisma.follow_ups.findMany({
+      where: { workplaceId: workplace.id },
+      include: { patients: { include: { patient_workplaces: { where: { workplaceId: workplace.id } } } }, doctor_profiles: true },
+      orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+      take: 50,
+    }),
+    prisma.tasks.findMany({
+      where: { workplaceId: workplace.id },
+      include: { patients: { include: { patient_workplaces: { where: { workplaceId: workplace.id } } } } },
+      orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }],
+      take: 50,
+    }),
+    prisma.investigation_orders.findMany({
+      where: { workplaceId: workplace.id },
+      include: { patients: { include: { patient_workplaces: { where: { workplaceId: workplace.id } } } }, doctor_profiles: true },
+      orderBy: { orderedAt: "desc" },
+      take: 50,
+    }),
+    prisma.prescriptions.findMany({
+      where: { workplaceId: workplace.id },
+      include: { patients: { include: { patient_workplaces: { where: { workplaceId: workplace.id } } } }, doctor_profiles: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    prisma.hospitalDocument.findMany({
+      where: { tenantId: context.tenantId, workplaceId: workplace.id },
+      include: { patients: { include: { patient_workplaces: { where: { workplaceId: workplace.id } } } } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    prisma.hospitalProfile.findUnique({
+      where: { workplaceId: workplace.id },
+    }),
+    prisma.hospitalContent.findMany({
+      where: { tenantId: context.tenantId, workplaceId: workplace.id, kind: { in: ["RECEPTIONIST_SETTINGS", "RECEPTIONIST_REPORT"] } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+    prisma.auditEvent.findMany({
+      where: { tenantId: context.tenantId, entity: "ReceptionistAction", entityId: workplace.id },
+      orderBy: { timestamp: "desc" },
+      take: 50,
+    }),
   ]);
+  const latestSettings = content.find((item) => item.kind === "RECEPTIONIST_SETTINGS");
+  const generatedReports = content.filter((item) => item.kind === "RECEPTIONIST_REPORT");
+  const settingsPayload = parseReceptionistSettings(latestSettings?.body);
+  const baseContext = receptionistContextForWorkplace(workplace);
 
   return {
     workplaceId: workplace.id,
+    settings: settingsPayload,
+    context: {
+      ...baseContext,
+      organizationName: profile?.description ? `${workplace.name}` : baseContext.organizationName,
+    },
     doctors: doctors.map((doctor) => ({
       name: doctor.fullName,
       department: doctor.doctor_workplaces[0]?.department ?? doctor.specialty,
@@ -389,6 +581,102 @@ async function receptionistSnapshot(context: RequestContext, workplaceId?: strin
       channel: message.channel === "EMAIL" ? "Email" : message.channel === "SMS" ? "SMS" : message.channel === "CALL" ? "Call" : "System",
       recipient: message.recipient,
     })),
+    followUps: followUps.map((followUp) => ({
+      id: followUp.id,
+      patientId: followUp.patientId,
+      doctorId: followUp.doctorId,
+      workplaceId: followUp.workplaceId,
+      patient: followUp.patients.fullName,
+      uhid: followUp.patients.patient_workplaces[0]?.localMrn ?? followUp.patients.qlynoId,
+      doctor: followUp.doctor_profiles.fullName,
+      dueAt: followUp.dueAt ? displayDate(followUp.dueAt) : "Not scheduled",
+      reason: followUp.reason,
+      status: followUp.status === "DUE_TODAY" ? "Due Today" : followUp.status.charAt(0) + followUp.status.slice(1).toLowerCase().replace(/_/g, " "),
+      owner: followUp.owner,
+    })),
+    tasks: tasks.map((task) => ({
+      id: task.id,
+      patientId: task.patientId ?? undefined,
+      workplaceId: task.workplaceId ?? undefined,
+      patient: task.patients?.fullName ?? "General reception",
+      uhid: task.patients?.patient_workplaces[0]?.localMrn ?? task.patients?.qlynoId ?? "-",
+      title: task.title,
+      description: task.description ?? "Administrative reception task",
+      dueAt: task.dueAt ? displayDate(task.dueAt) : "No due date",
+      status: task.status.charAt(0) + task.status.slice(1).toLowerCase().replace(/_/g, " "),
+      priority: task.priority.charAt(0) + task.priority.slice(1).toLowerCase(),
+    })),
+    coordination: [
+      ...orders.map((order) => ({
+        id: order.id,
+        patientId: order.patientId,
+        workplaceId: order.workplaceId,
+        patient: order.patients.fullName,
+        uhid: order.patients.patient_workplaces[0]?.localMrn ?? order.patients.qlynoId,
+        owner: order.doctor_profiles.fullName,
+        type: order.type === "LABORATORY" ? "Diagnostics" : order.type === "RADIOLOGY" ? "Radiology" : "External report",
+        title: order.title,
+        status: order.status.charAt(0) + order.status.slice(1).toLowerCase().replace(/_/g, " "),
+        date: displayDate(order.orderedAt),
+        boundary: "Status coordination only; report interpretation is routed to clinical staff.",
+      })),
+      ...prescriptions.map((prescription) => ({
+        id: prescription.id,
+        patientId: prescription.patientId,
+        workplaceId: prescription.workplaceId,
+        patient: prescription.patients.fullName,
+        uhid: prescription.patients.patient_workplaces[0]?.localMrn ?? prescription.patients.qlynoId,
+        owner: prescription.doctor_profiles.fullName,
+        type: "Pharmacy",
+        title: "Prescription fulfillment",
+        status: prescription.status.charAt(0) + prescription.status.slice(1).toLowerCase(),
+        date: displayDate(prescription.issuedAt ?? prescription.createdAt),
+        boundary: "Operational fulfillment status only; orders remain controlled by the doctor.",
+      })),
+    ],
+    documents: [
+      ...documents.map((document) => ({
+        id: document.id,
+        patientId: document.patientId ?? undefined,
+        workplaceId: document.workplaceId,
+        patient: document.patients?.fullName ?? "Hospital document",
+        uhid: document.patients?.patient_workplaces[0]?.localMrn ?? document.patients?.qlynoId ?? "-",
+        title: document.title,
+        category: document.category,
+        uploadedAt: displayDate(document.createdAt),
+        status: document.expiresAt && document.expiresAt < new Date() ? "Expired" : "On file",
+      })),
+      ...generatedReports.map((report) => ({
+        id: report.id,
+        workplaceId: report.workplaceId,
+        patient: "Reception report",
+        uhid: "-",
+        title: report.title,
+        category: "REPORT",
+        uploadedAt: displayDate(report.createdAt),
+        status: "On file",
+      })),
+    ],
+    auditTrail: [
+      ...outbox.map((message) => ({
+        id: message.id,
+        action: message.subject,
+        detail: message.body,
+        actor: "Reception",
+        time: displayTime(message.createdAt),
+        workplaceId: message.workplaceId,
+        _sortAt: message.createdAt.getTime(),
+      })),
+      ...auditEvents.map((event) => ({
+        id: event.id,
+        action: event.action,
+        detail: typeof event.afterState === "object" && event.afterState && "detail" in event.afterState ? String(event.afterState.detail) : "Reception action saved.",
+        actor: "Reception",
+        time: displayTime(event.timestamp),
+        workplaceId: workplace.id,
+        _sortAt: event.timestamp.getTime(),
+      })),
+    ].sort((a, b) => b._sortAt - a._sortAt).map(({ _sortAt, ...item }) => item),
   };
 }
 
@@ -408,17 +696,54 @@ async function ensurePatientAtWorkplace(patientId: string, workplaceId: string) 
   return row;
 }
 
+async function auditActorId(context: RequestContext) {
+  const actor = await prisma.user.findUnique({ where: { id: context.userId }, select: { id: true } });
+  return actor?.id;
+}
+
 async function writeOutbox(context: RequestContext, workplaceId: string, subject: string, body: string) {
-  await prisma.hospitalOutbox.create({
-    data: {
-      tenantId: context.tenantId,
-      workplaceId,
-      channel: "SYSTEM",
-      recipient: "front-desk",
-      subject,
-      body,
-    },
-  });
+  const actorUserId = await auditActorId(context);
+  await prisma.$transaction([
+    prisma.hospitalOutbox.create({
+      data: {
+        tenantId: context.tenantId,
+        workplaceId,
+        channel: "SYSTEM",
+        recipient: "front-desk",
+        subject,
+        body,
+      },
+    }),
+    prisma.auditEvent.create({
+      data: {
+        tenantId: context.tenantId,
+        actorUserId,
+        entity: "ReceptionistAction",
+        entityId: workplaceId,
+        action: subject,
+        afterState: { detail: body },
+      },
+    }),
+  ]);
+}
+
+async function writeReceptionistAction(context: RequestContext, workplaceId: string, subject: string, body: string, metadata: Prisma.InputJsonObject = {}) {
+  const actorUserId = await auditActorId(context);
+  await prisma.$transaction([
+    prisma.hospitalOutbox.create({
+      data: { tenantId: context.tenantId, workplaceId, channel: "SYSTEM", recipient: "front-desk", subject, body },
+    }),
+    prisma.auditEvent.create({
+      data: {
+        tenantId: context.tenantId,
+        actorUserId,
+        entity: "ReceptionistAction",
+        entityId: workplaceId,
+        action: subject,
+        afterState: { detail: body, ...metadata },
+      },
+    }),
+  ]);
 }
 
 export function receptionist(router: Router) {
@@ -469,10 +794,152 @@ export function receptionist(router: Router) {
             data: { id: id(), patientId: created.id, name: req.body.department, updatedAt: now },
           });
         }
+        if (req.body.address || req.body.notes) {
+          await tx.document_assets.create({
+            data: {
+              id: id(),
+              patientId: created.id,
+              title: "Reception registration details",
+              mimeType: "application/json",
+              storagePath: `reception/${workplace.id}/patients/${created.id}/registration-details.json`,
+              notes: JSON.stringify({ address: req.body.address ?? null, notes: req.body.notes ?? null }),
+              updatedAt: now,
+            },
+          });
+        }
         return created;
       });
       await writeOutbox(context, workplace.id, "Patient registered", `${patient.fullName} registered with ${req.body.localMrn}.`);
       res.status(201).json({ data: await receptionistSnapshot(context, workplace.id) });
+    })
+  );
+
+  router.get(
+    "/receptionist/patients/:id",
+    requirePermission("hms.patients.read"),
+    validate({ params: idParams, query: workplaceQuery }),
+    asyncHandler(async (req, res) => {
+      const context = req.context!;
+      const workplace = await resolveWorkplace(context, req.query.workplaceId as string | undefined);
+      const patient = await prisma.patients.findFirst({
+        where: { id: req.params.id, patient_workplaces: { some: { workplaceId: workplace.id } } },
+        include: {
+          patient_workplaces: { where: { workplaceId: workplace.id }, take: 1 },
+          patient_conditions: { orderBy: { updatedAt: "desc" }, take: 1 },
+          document_assets: { where: { title: "Reception registration details" }, orderBy: { updatedAt: "desc" }, take: 1 },
+        },
+      });
+
+      if (!patient) throw notFound("Patient");
+      const details = parseRegistrationDetails(patient.document_assets[0]?.notes);
+      res.json({
+        data: {
+          id: patient.id,
+          uhid: patient.patient_workplaces[0]?.localMrn ?? patient.qlynoId,
+          name: patient.fullName,
+          age: ageFromBirthDate(patient.dateOfBirth),
+          dateOfBirth: patient.dateOfBirth?.toISOString().slice(0, 10) ?? null,
+          gender: genderForPatient(patient.gender),
+          phone: patient.phone ?? "",
+          email: patient.email ?? "",
+          bloodGroup: patient.bloodGroup ?? "",
+          department: patient.patient_conditions[0]?.name ?? "General Medicine",
+          address: details.address ?? "",
+          notes: details.notes ?? "",
+          workplaceId: workplace.id,
+          status: patient.patient_workplaces[0]?.status === "ACTIVE" ? "Active" : "Deactivated",
+          createdAt: patient.createdAt.toISOString(),
+          updatedAt: patient.updatedAt.toISOString(),
+        },
+      });
+    })
+  );
+
+  router.patch(
+    "/receptionist/patients/:id",
+    requirePermission("hms.patients.write"),
+    rejectAuditorWrites,
+    validate({ params: idParams, body: updatePatient }),
+    asyncHandler(async (req, res) => {
+      const context = req.context!;
+      const patientId = req.params.id as string;
+      const workplace = await resolveWorkplace(context, req.body.workplaceId);
+      const link = await prisma.patient_workplaces.findFirst({ where: { patientId, workplaceId: workplace.id } });
+      if (!link) throw notFound("Patient");
+
+      const { workplaceId: _workplaceId, department, address, notes, email, ...patientData } = req.body;
+      await prisma.$transaction(async (tx) => {
+        await tx.patients.update({
+          where: { id: patientId },
+          data: { ...patientData, email: email === "" ? null : email, updatedAt: new Date() },
+        });
+
+        if (department !== undefined) {
+          const condition = await tx.patient_conditions.findFirst({
+            where: { patientId },
+            orderBy: { updatedAt: "desc" },
+          });
+          if (condition) {
+            await tx.patient_conditions.update({ where: { id: condition.id }, data: { name: department, updatedAt: new Date() } });
+          } else {
+            await tx.patient_conditions.create({ data: { id: id(), patientId, name: department, updatedAt: new Date() } });
+          }
+        }
+
+        if (address !== undefined || notes !== undefined) {
+          const existing = await tx.document_assets.findFirst({
+            where: { patientId, title: "Reception registration details" },
+            orderBy: { updatedAt: "desc" },
+          });
+          const current = parseRegistrationDetails(existing?.notes);
+          const registrationDetails = {
+            address: address ?? current.address ?? null,
+            notes: notes ?? current.notes ?? null,
+          };
+          if (existing) {
+            await tx.document_assets.update({
+              where: { id: existing.id },
+              data: { notes: JSON.stringify(registrationDetails), updatedAt: new Date() },
+            });
+          } else {
+            await tx.document_assets.create({
+              data: {
+                id: id(),
+                patientId,
+                title: "Reception registration details",
+                mimeType: "application/json",
+                storagePath: `reception/${workplace.id}/patients/${patientId}/registration-details.json`,
+                notes: JSON.stringify(registrationDetails),
+                updatedAt: new Date(),
+              },
+            });
+          }
+        }
+      });
+
+      await writeOutbox(context, workplace.id, "Patient details updated", `Patient ${patientId} details were updated by reception.`);
+      res.json({ data: await receptionistSnapshot(context, workplace.id) });
+    })
+  );
+
+  router.post(
+    "/receptionist/patients/:id/deactivate",
+    requirePermission("hms.patients.write"),
+    rejectAuditorWrites,
+    validate({ params: idParams, body: workplaceBody }),
+    asyncHandler(async (req, res) => {
+      const context = req.context!;
+      const workplace = await resolveWorkplace(context, req.body.workplaceId);
+      const link = await prisma.patient_workplaces.findFirst({ where: { patientId: req.params.id, workplaceId: workplace.id } });
+      if (!link) throw notFound("Patient");
+      if (link.status !== "ACTIVE") {
+        res.json({ data: await receptionistSnapshot(context, workplace.id) });
+        return;
+      }
+
+      await prisma.patient_workplaces.update({ where: { id: link.id }, data: { status: "INACTIVE", updatedAt: new Date() } });
+      await writeOutbox(context, workplace.id, "Patient deactivated", `Patient ${req.params.id} was deactivated by reception.`);
+      res.json({ data: await receptionistSnapshot(context, workplace.id) });
     })
   );
 
@@ -517,6 +984,60 @@ export function receptionist(router: Router) {
     })
   );
 
+  router.get(
+    "/receptionist/appointments/:id/slip",
+    requirePermission("hms.appointments.read"),
+    validate({ params: idParams, query: workplaceQuery }),
+    asyncHandler(async (req, res) => {
+      const context = req.context!;
+      const workplace = await resolveWorkplace(context, req.query.workplaceId as string | undefined);
+      const appointment = await prisma.appointments.findFirst({
+        where: { id: req.params.id, workplaceId: workplace.id },
+        include: {
+          patients: {
+            include: {
+              patient_workplaces: { where: { workplaceId: workplace.id }, take: 1 },
+            },
+          },
+          doctor_profiles: true,
+        },
+      });
+
+      if (!appointment) throw notFound("Appointment");
+
+      res.json({
+        data: {
+          id: appointment.id,
+          patientId: appointment.patientId,
+          doctorId: appointment.doctorId,
+          workplaceId: appointment.workplaceId,
+          organizationName: workplace.name,
+          patient: {
+            id: appointment.patients.id,
+            name: appointment.patients.fullName,
+            uhid: appointment.patients.patient_workplaces[0]?.localMrn ?? appointment.patients.qlynoId,
+            age: ageFromBirthDate(appointment.patients.dateOfBirth),
+            gender: genderForPatient(appointment.patients.gender),
+            phone: appointment.patients.phone ?? "Not added",
+          },
+          doctor: {
+            id: appointment.doctor_profiles.id,
+            name: appointment.doctor_profiles.fullName,
+            department: appointment.doctor_profiles.specialty,
+          },
+          date: displayDate(appointment.scheduledAt),
+          time: displayTime(appointment.scheduledAt),
+          scheduledAt: appointment.scheduledAt.toISOString(),
+          status: appointment.status,
+          mode: appointment.mode,
+          reason: appointment.reason,
+          checkedInAt: appointment.checkedInAt ? displayTime(appointment.checkedInAt) : null,
+          generatedAt: new Date().toISOString(),
+        },
+      });
+    })
+  );
+
   router.patch(
     "/receptionist/appointments/:id/status",
     requirePermission("hms.appointments.write"),
@@ -539,6 +1060,7 @@ export function receptionist(router: Router) {
           completedAt: req.body.status === "COMPLETED" ? new Date() : row.completedAt,
         },
       });
+      await writeOutbox(context, workplace.id, "Appointment status updated", `Appointment ${row.id} moved from ${row.status} to ${req.body.status}.`);
       res.json({ data: await receptionistSnapshot(context, workplace.id) });
     })
   );
@@ -590,6 +1112,7 @@ export function receptionist(router: Router) {
           },
         });
       }
+      await writeOutbox(context, workplace.id, "Patient checked in", "Patient was added to the reception queue.");
       res.status(201).json({ data: await receptionistSnapshot(context, workplace.id) });
     })
   );
@@ -613,6 +1136,7 @@ export function receptionist(router: Router) {
           purpose: req.body.purpose,
         },
       });
+      await writeOutbox(context, workplace.id, "Visitor pass issued", `${req.body.name} checked in for patient visitation.`);
       res.status(201).json({ data: await receptionistSnapshot(context, workplace.id) });
     })
   );
@@ -628,6 +1152,7 @@ export function receptionist(router: Router) {
       const row = await prisma.hospitalVisitor.findFirst({ where: { id: req.params.id, tenantId: context.tenantId, workplaceId: workplace.id } });
       if (!row) throw notFound("Visitor");
       if (!row.checkedOutAt) await prisma.hospitalVisitor.update({ where: { id: row.id }, data: { checkedOutAt: new Date() } });
+      await writeOutbox(context, workplace.id, "Visitor checked out", `Visitor pass ${row.id} was checked out.`);
       res.json({ data: await receptionistSnapshot(context, workplace.id) });
     })
   );
@@ -683,6 +1208,7 @@ export function receptionist(router: Router) {
           },
         });
       });
+      await writeOutbox(context, workplace.id, "Patient admitted", `Patient admitted to ${req.body.ward} / ${req.body.bed}.`);
       res.status(201).json({ data: await receptionistSnapshot(context, workplace.id) });
     })
   );
@@ -756,16 +1282,134 @@ export function receptionist(router: Router) {
     asyncHandler(async (req, res) => {
       const context = req.context!;
       const workplace = await resolveWorkplace(context, req.body.workplaceId);
-      await prisma.hospitalOutbox.create({
+      await prisma.$transaction([
+        prisma.hospitalOutbox.create({
+          data: {
+            tenantId: context.tenantId,
+            workplaceId: workplace.id,
+            channel: req.body.channel,
+            recipient: req.body.recipient,
+            subject: req.body.subject,
+            body: req.body.body,
+          },
+        }),
+        prisma.auditEvent.create({
+          data: {
+            tenantId: context.tenantId,
+            actorUserId: context.userId,
+            entity: "ReceptionistAction",
+            entityId: workplace.id,
+            action: "Staff message sent",
+            afterState: { detail: req.body.body, channel: req.body.channel, recipient: req.body.recipient },
+          },
+        }),
+      ]);
+      res.status(201).json({ data: await receptionistSnapshot(context, workplace.id) });
+    })
+  );
+
+  router.post(
+    "/receptionist/actions",
+    requirePermission("hms.appointments.write"),
+    rejectAuditorWrites,
+    validate({ body: createReceptionistAction }),
+    asyncHandler(async (req, res) => {
+      const context = req.context!;
+      const workplace = await resolveWorkplace(context, req.body.workplaceId);
+      await writeReceptionistAction(context, workplace.id, req.body.subject, req.body.detail, {
+        action: req.body.action,
+        relatedType: req.body.relatedType ?? null,
+        relatedId: req.body.relatedId ?? null,
+      });
+      res.status(201).json({ data: await receptionistSnapshot(context, workplace.id) });
+    })
+  );
+
+  router.post(
+    "/receptionist/reports",
+    requirePermission("hms.read"),
+    rejectAuditorWrites,
+    validate({ body: generateReport }),
+    asyncHandler(async (req, res) => {
+      const context = req.context!;
+      const workplace = await resolveWorkplace(context, req.body.workplaceId);
+      const endExclusive = new Date(req.body.endDate);
+      endExclusive.setDate(endExclusive.getDate() + 1);
+      const range = { gte: req.body.startDate, lt: endExclusive };
+      const [patientRegistrations, appointments, cancellations, admissions, messages] = await Promise.all([
+        prisma.patient_workplaces.count({ where: { workplaceId: workplace.id, createdAt: range } }),
+        prisma.appointments.count({ where: { workplaceId: workplace.id, scheduledAt: range } }),
+        prisma.appointments.count({ where: { workplaceId: workplace.id, status: { in: ["CANCELLED", "NO_SHOW"] }, scheduledAt: range } }),
+        prisma.hospitalAdmission.count({ where: { tenantId: context.tenantId, workplaceId: workplace.id, admittedAt: range } }),
+        prisma.hospitalOutbox.count({ where: { tenantId: context.tenantId, workplaceId: workplace.id, createdAt: range } }),
+      ]);
+      const summary = { patientRegistrations, appointments, cancellations, admissions, messages };
+      await prisma.hospitalContent.create({
         data: {
           tenantId: context.tenantId,
           workplaceId: workplace.id,
-          channel: req.body.channel,
-          recipient: req.body.recipient,
-          subject: req.body.subject,
-          body: req.body.body,
+          title: `${req.body.type} - ${displayDate(req.body.startDate)} to ${displayDate(req.body.endDate)}`,
+          kind: "RECEPTIONIST_REPORT",
+          body: JSON.stringify({ type: req.body.type, range: req.body.range, startDate: req.body.startDate, endDate: req.body.endDate, summary }),
+          status: "PUBLISHED",
+          authorUserId: context.userId,
+          publishedAt: new Date(),
         },
       });
+      await writeReceptionistAction(context, workplace.id, "Reception report generated", `${req.body.type} report generated.`, summary);
+      res.status(201).json({ data: await receptionistSnapshot(context, workplace.id), report: summary });
+    })
+  );
+
+  router.post(
+    "/receptionist/settings",
+    requirePermission("hms.read"),
+    rejectAuditorWrites,
+    validate({ body: saveSettings }),
+    asyncHandler(async (req, res) => {
+      const context = req.context!;
+      const workplace = await resolveWorkplace(context, req.body.workplaceId);
+      const savedAt = new Date();
+      const previous = await prisma.hospitalContent.findFirst({
+        where: { tenantId: context.tenantId, workplaceId: workplace.id, kind: "RECEPTIONIST_SETTINGS" },
+        orderBy: { createdAt: "desc" },
+      });
+      const previousSettings = parseReceptionistSettings(previous?.body);
+      const body: Prisma.InputJsonObject = {
+        profile: req.body.profile ?? previousSettings?.profile ?? null,
+        printers: req.body.printers ?? previousSettings?.printers ?? null,
+        security: req.body.security ?? previousSettings?.security ?? null,
+        notificationPreferences: req.body.notificationPreferences ?? previousSettings?.notificationPreferences ?? null,
+        savedAt: savedAt.toISOString(),
+      };
+      const profileSettings = body.profile && typeof body.profile === "object" && !Array.isArray(body.profile) ? body.profile as Record<string, Prisma.InputJsonValue> : null;
+      const displayName = typeof profileSettings?.displayName === "string" ? profileSettings.displayName : "Reception profile";
+      await prisma.$transaction([
+        prisma.hospitalProfile.upsert({
+          where: { workplaceId: workplace.id },
+          create: {
+            tenantId: context.tenantId,
+            workplaceId: workplace.id,
+            description: displayName,
+          },
+          update: {
+            description: displayName,
+          },
+        }),
+        prisma.hospitalContent.create({
+          data: {
+            tenantId: context.tenantId,
+            workplaceId: workplace.id,
+            title: "Receptionist settings",
+            kind: "RECEPTIONIST_SETTINGS",
+            body: JSON.stringify(body),
+            status: "PUBLISHED",
+            authorUserId: context.userId,
+            publishedAt: savedAt,
+          },
+        }),
+      ]);
+      await writeReceptionistAction(context, workplace.id, "Reception settings saved", "Reception settings updated.", body);
       res.status(201).json({ data: await receptionistSnapshot(context, workplace.id) });
     })
   );

@@ -7,13 +7,10 @@ import { WorkplaceBadge } from "@/components/doctor-workflow";
 import { useMode } from "@/lib/mode-context";
 import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import {
-  getInternalContactsForScope,
-  initialInternalThreads,
   InternalChatMessage,
   InternalContact,
-  InternalContactScope,
 } from "@/lib/internal-communication";
-import { sendBackendMessage } from "@/lib/api-client";
+import { getBackendConversations, sendBackendMessage } from "@/lib/api-client";
 
 const roleTone: Record<string, "brand" | "clay" | "sage" | "neutral"> = {
   Doctor: "brand",
@@ -45,26 +42,87 @@ function contactMatchesQuery(contact: InternalContact, query: string) {
 
 export default function CommunicationPage() {
   const { selectedWorkplaceId, workContext } = useMode();
-  const { activeShift, getWorkplace, isLoadingWorkflow, workplaces } = useDoctorWorkflow();
+  const { activeShift, backendDoctorId, doctors, getWorkplace, isLoadingWorkflow, staff, workplaces } = useDoctorWorkflow();
   const [activeId, setActiveId] = useState("");
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [threads, setThreads] = useState<Record<string, InternalChatMessage[]>>({});
+  const [conversationIds, setConversationIds] = useState<Record<string, string>>({});
   const [syncMessage, setSyncMessage] = useState("");
 
   const selectedWorkplace = getWorkplace(selectedWorkplaceId);
   const activeWorkplace = selectedWorkplace ?? (activeShift ? getWorkplace(activeShift.workplaceId) : undefined);
-  const scope: InternalContactScope = workContext === "hospital" || activeWorkplace?.type === "hospital" ? "hospital" : "clinic";
+  const messageWorkplaceId = activeWorkplace?.id ?? selectedWorkplaceId;
+  const scope = workContext === "hospital" || activeWorkplace?.type === "hospital" ? "hospital" : "clinic";
 
   const contacts = useMemo(
-    () => getInternalContactsForScope(scope, activeWorkplace),
-    [activeWorkplace, scope]
+    () => [
+      ...doctors.map<InternalContact>((doctor) => ({
+        id: `doctor-${doctor.id}`,
+        userAccountId: doctor.userAccountId,
+        name: doctor.name,
+        role: "Doctor",
+        team: doctor.specialty,
+        scope: "clinic" as const,
+        workplaceId: doctor.workplaceIds?.[0],
+        status: "Online" as const,
+        lastMessage: "No messages yet",
+        time: "-",
+      })),
+      ...staff.map<InternalContact>((member) => ({
+        id: `staff-${member.id}`,
+        userAccountId: member.userAccountId,
+        name: member.name,
+        role: member.role,
+        team: member.role === "Lab/Pharmacy User" ? "Lab / Pharmacy" : "Clinic Staff",
+        scope,
+        workplaceId: member.workplaceIds?.[0],
+        status: member.status === "Active" ? "Online" : "Offline",
+        lastMessage: "No messages yet",
+        time: "-",
+      })),
+    ]
+      .filter((contact) => contact.id !== `doctor-${backendDoctorId}`)
+      .filter((contact) => !contact.workplaceId || !activeWorkplace?.id || contact.workplaceId === activeWorkplace.id),
+    [activeWorkplace?.id, backendDoctorId, doctors, scope, staff]
   );
 
   useEffect(() => {
-    setThreads((current) => ({ ...initialInternalThreads(contacts), ...current }));
     setActiveId((current) => (contacts.some((contact) => contact.id === current) ? current : contacts[0]?.id ?? ""));
-  }, [contacts]);
+    setThreads({});
+    setConversationIds({});
+
+    let cancelled = false;
+    void getBackendConversations(messageWorkplaceId)
+      .then((conversations) => {
+        if (cancelled) return;
+
+        const nextThreads: Record<string, InternalChatMessage[]> = {};
+        const nextConversationIds: Record<string, string> = {};
+        conversations.forEach((conversation) => {
+          const contact = contacts.find((candidate) => candidate.name === conversation.withName);
+          if (!contact) return;
+          nextConversationIds[contact.id] = conversation.id;
+          nextThreads[contact.id] = conversation.messages.map((message) => ({
+            from: message.from,
+            text: message.text,
+            time: message.time,
+          }));
+        });
+        setThreads(nextThreads);
+        setConversationIds(nextConversationIds);
+        setSyncMessage("");
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSyncMessage(error instanceof Error ? error.message : "Unable to load staff conversations.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contacts, messageWorkplaceId]);
 
   const visibleContacts = contacts.filter((contact) => contactMatchesQuery(contact, query));
   const active = contacts.find((contact) => contact.id === activeId);
@@ -111,23 +169,26 @@ export default function CommunicationPage() {
   async function send() {
     if (!active || !draft.trim()) return;
     const outgoingText = draft.trim();
-    const nextMessage: InternalChatMessage = { from: "me", text: outgoingText, time: "Now" };
 
     setDraft("");
-    setThreads((current) => ({
-      ...current,
-      [active.id]: [...(current[active.id] ?? []), nextMessage],
-    }));
 
     try {
-      await sendBackendMessage({
-        workplaceId: selectedWorkplaceId,
+      const result = await sendBackendMessage({
+        conversationId: conversationIds[active.id],
+        workplaceId: messageWorkplaceId,
+        recipientUserAccountId: active.userAccountId,
         title: active.name,
         body: outgoingText,
       });
+      setConversationIds((current) => ({ ...current, [active.id]: result.conversationId }));
+      setThreads((current) => ({
+        ...current,
+        [active.id]: [...(current[active.id] ?? []), { from: "me", text: result.message.text, time: result.message.time }],
+      }));
       setSyncMessage("Message synced to backend.");
-    } catch {
-      setSyncMessage("Backend sync failed; local staff message kept.");
+    } catch (error) {
+      setDraft(outgoingText);
+      setSyncMessage(error instanceof Error ? error.message : "Unable to send message.");
     }
   }
 
@@ -228,7 +289,9 @@ export default function CommunicationPage() {
               {visibleContacts.length === 0 ? (
                 <EmptyState title="No staff found" description="Try another name, role or department." />
               ) : (
-                visibleContacts.map((contact) => (
+                visibleContacts.map((contact) => {
+                  const lastThreadMessage = threads[contact.id]?.at(-1);
+                  return (
                   <button
                     key={contact.id}
                     onClick={() => setActiveId(contact.id)}
@@ -247,15 +310,16 @@ export default function CommunicationPage() {
                             </span>
                           ) : null}
                         </div>
-                        <p className="truncate text-xs text-ink-muted">{contact.lastMessage}</p>
+                        <p className="truncate text-xs text-ink-muted">{lastThreadMessage?.text ?? contact.lastMessage}</p>
                         <div className="mt-1 flex items-center gap-1.5">
                           <Pill tone={roleTone[contact.role] ?? "neutral"}>{contact.role}</Pill>
-                          <span className="text-[10px] text-ink-faint">{contact.time}</span>
+                          <span className="text-[10px] text-ink-faint">{lastThreadMessage?.time ?? contact.time}</span>
                         </div>
                       </div>
                     </div>
                   </button>
-                ))
+                  );
+                })
               )}
             </div>
           </aside>

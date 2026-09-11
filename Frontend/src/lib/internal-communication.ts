@@ -6,6 +6,7 @@ export type InternalContactScope = "clinic" | "hospital";
 
 export interface InternalContact {
   id: string;
+  userAccountId?: string;
   name: string;
   role: string;
   team: string;

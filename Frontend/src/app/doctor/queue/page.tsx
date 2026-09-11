@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react";
 import clsx from "clsx";
+import Link from "next/link";
 import { ClipboardList, Clock } from "lucide-react";
-import { ClinicQueueCard, WorkplaceBadge } from "@/components/doctor-workflow";
+import { WorkplaceBadge } from "@/components/doctor-workflow";
 import { Card, EmptyState, Pill, SectionHeading, CardGridSkeleton, SectionSkeleton, Skeleton } from "@/components/ui";
 import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
-import { QueueStatus } from "@/lib/doctor-workflow-types";
+import { ClinicQueueItem, QueueStatus } from "@/lib/doctor-workflow-types";
 
 const tabs: Array<{ label: string; value: QueueStatus | "all" }> = [
   { label: "All", value: "all" },
@@ -18,11 +19,13 @@ const tabs: Array<{ label: string; value: QueueStatus | "all" }> = [
 ];
 
 export default function DoctorQueuePage() {
-  const { clinicQueue, completeQueueConsultation, getWorkplace, isLoadingWorkflow, startQueueConsultation, workplaces } = useDoctorWorkflow();
-  const [tab, setTab] = useState<QueueStatus | "all">("waiting");
+  const { clinicQueue, completeQueueConsultation, getWorkplace, isLoadingWorkflow, patients, startQueueConsultation, workplaces } = useDoctorWorkflow();
+  // Scheduled appointments are represented as "upcoming" queue items. Start
+  // on all statuses so booked patients are visible as soon as the queue opens.
+  const [tab, setTab] = useState<QueueStatus | "all">("all");
   const [workplaceId, setWorkplaceId] = useState("all");
 
-  const clinicWorkplaces = workplaces.filter((workplace) => workplace.type === "clinic" || workplace.type === "online");
+  const queueWorkplaces = workplaces;
   const visibleQueue = useMemo(
     () =>
       clinicQueue
@@ -30,9 +33,91 @@ export default function DoctorQueuePage() {
         .filter((item) => workplaceId === "all" || item.workplaceId === workplaceId),
     [clinicQueue, tab, workplaceId]
   );
+  const activeQueue = visibleQueue.filter((item) => item.status !== "completed");
+  const completedQueue = visibleQueue.filter((item) => item.status === "completed");
   const waitingCount = clinicQueue.filter((item) => item.status === "waiting").length;
   const inConsultation = clinicQueue.filter((item) => item.status === "in_consultation").length;
   const activeWorkplace = workplaceId === "all" ? undefined : getWorkplace(workplaceId);
+
+  function renderQueueRows(items: ClinicQueueItem[]) {
+    return items.map((item) => {
+      const patient = patients.find((entry) => entry.id === item.patientId);
+      const workplace = getWorkplace(item.workplaceId);
+      return (
+        <tr key={item.id}>
+          <td>
+            <span className="font-mono text-xs text-ink-muted">#{item.token}</span>
+          </td>
+          <td>
+            <div className="min-w-[12rem]">
+              <p className="font-semibold text-ink">{patient?.name ?? "Patient"}</p>
+              <p className="mt-0.5 text-xs text-ink-muted">{patient?.mrn ?? item.patientId}</p>
+            </div>
+          </td>
+          <td>
+            <p className="font-mono text-xs text-ink">{item.appointmentTime}</p>
+            <p className="mt-0.5 text-xs text-clay-600">Waiting {item.waitingMins} min</p>
+          </td>
+          <td>
+            <p className="min-w-[12rem] text-xs text-ink-soft">{item.reason}</p>
+          </td>
+          <td>
+            <div className="min-w-[12rem]">
+              <p className="text-xs font-semibold text-ink">{workplace?.name ?? "Workplace"}</p>
+              <p className="mt-0.5 text-[11px] text-ink-muted">{workplace?.location ?? workplace?.department ?? "Online"}</p>
+            </div>
+          </td>
+          <td>
+            <Pill tone={item.status === "in_consultation" ? "sage" : item.status === "waiting" ? "clay" : item.status === "completed" ? "sage" : "neutral"}>
+              {item.status.replace("_", " ")}
+            </Pill>
+          </td>
+          <td>
+            <div className="flex min-w-[15rem] flex-wrap justify-end gap-2">
+              <Link href={`/doctor/patients/${item.patientId}`} className="btn-secondary text-xs">
+                Open Patient
+              </Link>
+              {item.status !== "completed" && (
+                <Link
+                  href={`/doctor/consultation?patient=${item.patientId}&appointment=${item.id}`}
+                  onClick={() => startQueueConsultation(item.id)}
+                  className="btn-primary text-xs"
+                >
+                  Start Consultation
+                </Link>
+              )}
+              {item.status === "in_consultation" && (
+                <button type="button" onClick={() => completeQueueConsultation(item.id)} className="btn-secondary text-xs">
+                  Complete
+                </button>
+              )}
+            </div>
+          </td>
+        </tr>
+      );
+    });
+  }
+
+  function QueueTable({ items }: { items: ClinicQueueItem[] }) {
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[920px] table-clean">
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Patient</th>
+              <th>Time</th>
+              <th>Reason</th>
+              <th>Workplace</th>
+              <th>Status</th>
+              <th className="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>{renderQueueRows(items)}</tbody>
+        </table>
+      </div>
+    );
+  }
 
   if (isLoadingWorkflow) {
     return (
@@ -60,8 +145,8 @@ export default function DoctorQueuePage() {
         description="Run OPD patients by token, workplace and consultation status. Each queued case opens into the same encounter workspace."
         action={
           <select value={workplaceId} onChange={(event) => setWorkplaceId(event.target.value)} className="input-field h-10 w-64">
-            <option value="all">All clinic and online workplaces</option>
-            {clinicWorkplaces.map((workplace) => (
+            <option value="all">All workplaces</option>
+            {queueWorkplaces.map((workplace) => (
               <option key={workplace.id} value={workplace.id}>
                 {workplace.name} {workplace.location ? `- ${workplace.location}` : ""}
               </option>
@@ -111,15 +196,16 @@ export default function DoctorQueuePage() {
         </div>
 
         {visibleQueue.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4 p-5 xl:grid-cols-2">
-            {visibleQueue.map((item) => (
-              <ClinicQueueCard
-                key={item.id}
-                item={item}
-                onStart={() => startQueueConsultation(item.id)}
-                onComplete={() => completeQueueConsultation(item.id)}
-              />
-            ))}
+          <div className="space-y-5 p-5">
+            {activeQueue.length > 0 && (
+              <QueueTable items={activeQueue} />
+            )}
+            {completedQueue.length > 0 && (
+              <div>
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-sage-500">Completed</p>
+                <QueueTable items={completedQueue} />
+              </div>
+            )}
           </div>
         ) : (
           <EmptyState

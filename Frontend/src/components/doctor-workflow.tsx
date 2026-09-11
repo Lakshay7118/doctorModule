@@ -23,7 +23,6 @@ import {
   X,
 } from "lucide-react";
 import { Card, Pill } from "@/components/ui";
-import { clinic, currentDoctor, getPatient } from "@/lib/mock-data";
 import { useDoctorWorkflow } from "@/lib/doctor-workflow-context";
 import { useMode } from "@/lib/mode-context";
 import {
@@ -127,7 +126,8 @@ export function ClinicQueueCard({
   onStart: () => void;
   onComplete: () => void;
 }) {
-  const patient = getPatient(item.patientId);
+  const { patients } = useDoctorWorkflow();
+  const patient = patients.find((entry) => entry.id === item.patientId);
   return (
     <Card className="!p-4">
       <div className="flex items-start justify-between gap-3">
@@ -147,7 +147,7 @@ export function ClinicQueueCard({
         </Link>
         {item.status !== "completed" && (
           <Link
-            href={`/doctor/patients/${item.patientId}/encounter/${item.id}`}
+            href={`/doctor/consultation?patient=${item.patientId}&appointment=${item.id}`}
             onClick={onStart}
             className="btn-primary text-xs"
           >
@@ -173,7 +173,8 @@ export function HospitalPatientCard({
   onAccept?: () => void;
   onComplete?: () => void;
 }) {
-  const patient = getPatient(item.patientId);
+  const { patients } = useDoctorWorkflow();
+  const patient = patients.find((entry) => entry.id === item.patientId);
   return (
     <Card className="!p-4">
       <div className="flex items-start justify-between gap-3">
@@ -232,7 +233,8 @@ export function DoctorTaskCard({
   onStart: () => void;
   onComplete: () => void;
 }) {
-  const patient = task.patientId ? getPatient(task.patientId) : undefined;
+  const { patients } = useDoctorWorkflow();
+  const patient = task.patientId ? patients.find((entry) => entry.id === task.patientId) : undefined;
   return (
     <Card className="!p-4">
       <div className="flex items-start justify-between gap-3">
@@ -265,8 +267,11 @@ export function DoctorTaskCard({
           </>
         )}
         {task.patientId && (
-          <Link href={`/doctor/patients/${task.patientId}`} className="btn-ghost text-xs">
-            Open Patient
+          <Link
+            href={task.appointmentId ? `/doctor/consultation?patient=${task.patientId}&appointment=${task.appointmentId}` : `/doctor/patients/${task.patientId}`}
+            className="btn-ghost text-xs"
+          >
+            {task.appointmentId ? "Open Consultation" : "Open Patient"}
           </Link>
         )}
       </div>
@@ -338,6 +343,7 @@ function buildAiResponse({
   operation,
   query,
   activeWorkplaceName,
+  currentDoctorName,
   activeShift,
   pendingQueueCount,
   urgentTaskCount,
@@ -346,6 +352,7 @@ function buildAiResponse({
   operation: AiOperation;
   query: string;
   activeWorkplaceName: string;
+  currentDoctorName: string;
   activeShift?: DoctorShift;
   pendingQueueCount: number;
   urgentTaskCount: number;
@@ -357,12 +364,12 @@ function buildAiResponse({
   if (operation === "clinic") {
     return {
       title: "Clinic Knowledge AI",
-      summary: `${clinic.name} can answer from approved clinic facts: timings, services, locations, doctors and clinic policy.`,
+      summary: `${activeWorkplaceName} answers are scoped to the currently selected workplace and its approved records.`,
       route: "Clinic AI / receptionist",
       steps: [
-        `Clinic hours: ${clinic.timings}.`,
-        `Services: ${clinic.services.slice(0, 4).join(", ")}.`,
-        `Locations: ${clinic.locations.map((location) => location.name).join(", ")}.`,
+        `Current workplace: ${activeWorkplaceName}.`,
+        "Use the selected workplace records for timings, services, locations and policy facts.",
+        `Open queue waiting: ${pendingQueueCount}.`,
         "If the question asks for a specific doctor's slot, switch to Doctor Knowledge.",
       ],
       boundary: "Do not invent prices, availability or policies that are not in clinic data.",
@@ -373,10 +380,10 @@ function buildAiResponse({
   if (operation === "doctor") {
     return {
       title: "Doctor Knowledge AI",
-      summary: `${currentDoctor.name} knowledge is scoped to profile, specialty, approved content and this doctor's schedule.`,
+      summary: `${currentDoctorName} knowledge is scoped to the signed-in doctor's profile, approved content and schedule.`,
       route: "Responsible doctor / assigned team",
       steps: [
-        `${currentDoctor.specialty} - ${currentDoctor.qualifications}.`,
+        `Responsible doctor: ${currentDoctorName}.`,
         activeShift
           ? `Active context: ${activeWorkplaceName}, ${activeShift.startTime} to ${activeShift.endTime}.`
           : `Current context: ${activeWorkplaceName}.`,
@@ -427,7 +434,7 @@ export function DoctorAiAssistant() {
   const [query, setQuery] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const { workContext } = useMode();
-  const { activeShift, clinicQueue, doctorTasks, hospitalWorklist, workplaces } = useDoctorWorkflow();
+  const { activeShift, clinicQueue, currentDoctorName, doctorTasks, hospitalWorklist, workplaces } = useDoctorWorkflow();
 
   const activeWorkplace = useMemo(() => {
     if (activeShift) return workplaces.find((workplace) => workplace.id === activeShift.workplaceId);
@@ -440,12 +447,13 @@ export function DoctorAiAssistant() {
         operation,
         query,
         activeWorkplaceName: activeWorkplace?.name ?? "Current workspace",
+        currentDoctorName,
         activeShift,
         pendingQueueCount: clinicQueue.filter((item) => item.status === "waiting").length,
         urgentTaskCount: doctorTasks.filter((task) => task.priority === "Critical" || task.status === "urgent").length,
         criticalHospitalCount: hospitalWorklist.filter((item) => item.priority === "Critical" || item.status === "critical").length,
       }),
-    [activeShift, activeWorkplace?.name, clinicQueue, doctorTasks, hospitalWorklist, operation, query]
+    [activeShift, activeWorkplace?.name, clinicQueue, currentDoctorName, doctorTasks, hospitalWorklist, operation, query]
   );
 
   const ActiveIcon = aiOperations.find((item) => item.id === operation)?.icon ?? Sparkles;

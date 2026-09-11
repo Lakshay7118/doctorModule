@@ -4,11 +4,11 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Plus, ScanLine } from "lucide-react";
 import { SectionHeading, Card, Avatar, Pill, OrderStatusBadge, Modal, SectionSkeleton, TableSkeleton } from "@/components/ui";
-import { patients as seedPatients, radiologyOrders as seedOrders, getPatient, matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
+import { matchesWorkContext, patientInWorkContext } from "@/lib/mock-data";
 import { useMode } from "@/lib/mode-context";
 import { ImagingType, Patient, RadiologyOrder } from "@/lib/types";
 import { CURRENT_DATE_ISO } from "@/lib/app-time";
-import { ApiSyncSkippedError, createBackendOrder, getBackendBootstrap } from "@/lib/api-client";
+import { createBackendOrder, getBackendBootstrap } from "@/lib/api-client";
 
 const imagingTypes: ImagingType[] = ["X-Ray", "CT Scan", "MRI", "Ultrasound"];
 
@@ -41,13 +41,14 @@ function RadiologyOrdersList() {
         if (cancelled) return;
         setPatients(data.patients);
         setOrders(data.radiologyOrders);
-        setBackendDoctorId(data.doctors[0]?.id ?? "");
+        setBackendDoctorId(data.currentDoctorId ?? data.doctors[0]?.id ?? "");
       })
       .catch(() => {
         if (cancelled) return;
-        setPatients(seedPatients);
-        setOrders(seedOrders);
-        setBackendDoctorId("doc-1");
+        setPatients([]);
+        setOrders([]);
+        setBackendDoctorId("");
+        setSyncMessage("Unable to load radiology orders from the backend.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingOrders(false);
@@ -78,7 +79,7 @@ function RadiologyOrdersList() {
     const localOrder: RadiologyOrder = {
       id: `rad-${Date.now()}`,
       patientId,
-      doctorId: backendDoctorId || "doc-1",
+      doctorId: backendDoctorId,
       imagingType,
       bodyRegion,
       orderedOn: CURRENT_DATE_ISO,
@@ -98,7 +99,8 @@ function RadiologyOrdersList() {
       localOrder.id = savedOrder.id;
       setSyncMessage("Radiology order synced to backend.");
     } catch (error) {
-      setSyncMessage(error instanceof ApiSyncSkippedError ? "Mock radiology order saved locally." : "Backend sync failed; local radiology order kept.");
+      setSyncMessage(`Backend sync failed: ${error instanceof Error ? error.message : "radiology order was not saved."}`);
+      return;
     }
     setOrders((prev) => [localOrder, ...prev]);
     setBodyRegion("");
@@ -192,7 +194,7 @@ function RadiologyOrdersList() {
           </thead>
           <tbody>
             {contextOrders.map((o) => {
-              const patient = patientById.get(o.patientId) ?? getPatient(o.patientId);
+              const patient = patientById.get(o.patientId);
               return (
                 <tr key={o.id}>
                   <td>

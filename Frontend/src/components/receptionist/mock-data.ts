@@ -14,7 +14,7 @@ export interface Patient {
   department: string;
   bloodGroup?: string;
   lastVisit: string;
-  status: "Active" | "Discharged" | "New";
+  status: "Active" | "Deactivated" | "Discharged" | "New";
 }
 
 export interface Appointment {
